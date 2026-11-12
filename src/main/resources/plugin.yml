@@ -1,0 +1,24 @@
+name: LinuxAPP
+main: com.nalxer.app.NalxerApp
+version: ${project.version}
+description: LinuxAPP 服务器手机 App 数据接口
+author: Linux582021
+depend: [AuthMe]
+softdepend: [InTheNameOfLinux, Essentials, PlayerPoints, Vault, LinuxTitle, LinuxTeam, Residence, XlandCore, NalxerECO, FakePlayerPlugin]
+
+commands:
+  linuxapp:
+    description: LinuxAPP 管理命令
+    usage: /linuxapp <status|reload|token|logout>
+    aliases: [nalxerapp]
+  nalxerapp:
+    description: LinuxAPP 管理命令（旧名，保留兼容）
+    usage: /nalxerapp <status|reload|token|logout>
+
+permissions:
+  linuxapp.admin:
+    description: 允许查看接口状态、重载配置、签发管理令牌
+    default: op
+  nalxerapp.admin:
+    description: 旧权限名，保留兼容
+    default: op

@@ -1,0 +1,207 @@
+name: Build Nalxer App
+
+# 手动触发，或者 app/mobile、app/mobile-ios12、本工作流文件有改动时自动跑
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'app/mobile/**'
+      - 'app/mobile-ios12/**'
+      - '.github/workflows/app-build.yml'
+
+jobs:
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: 安装前端依赖
+        working-directory: app/mobile
+        run: npm install --no-audit --no-fund
+
+      - name: 同步 web 资源到安卓工程
+        working-directory: app/mobile
+        run: npx cap copy android
+
+      - name: Gradle wrapper 走官方地址
+        working-directory: app/mobile/android
+        run: |
+          sed -i 's|^distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-8.2.1-bin.zip|' gradle/wrapper/gradle-wrapper.properties
+          chmod +x gradlew
+          grep distributionUrl gradle/wrapper/gradle-wrapper.properties
+
+      - name: 构建 APK
+        working-directory: app/mobile/android
+        run: ./gradlew --no-daemon --stacktrace assembleDebug
+
+      - name: 收集产物
+        run: |
+          mkdir -p out
+          cp app/mobile/android/app/build/outputs/apk/debug/*.apk out/ 2>/dev/null || true
+          ls -lh out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nalxer-android-apk
+          path: out/*.apk
+          if-no-files-found: error
+
+  ios:
+    name: iOS 未签名 ipa
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 安装前端依赖
+        working-directory: app/mobile
+        run: npm install --no-audit --no-fund
+
+      - name: 同步 web 资源到 iOS 工程
+        working-directory: app/mobile
+        run: npx cap copy ios
+
+      - name: 装 CocoaPods 依赖
+        working-directory: app/mobile/ios/App
+        run: pod install --repo-update
+
+      - name: 编译归档（未签名）
+        working-directory: app/mobile/ios/App
+        run: |
+          xcodebuild \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: 打成未签名 ipa
+        run: |
+          APP="app/mobile/ios/App/build/Build/Products/Release-iphoneos/App.app"
+          ls -la "$(dirname "$APP")" || true
+          if [ -d "$APP" ]; then
+            mkdir -p payload/Payload
+            cp -R "$APP" payload/Payload/
+            cd payload && zip -qry "$GITHUB_WORKSPACE/Nalxer-unsigned.ipa" Payload
+            cd .. && unzip -l "$GITHUB_WORKSPACE/Nalxer-unsigned.ipa" | head -20
+          else
+            echo "没找到 App.app，构建失败"
+            exit 1
+          fi
+
+      - name: 再出一份 ad-hoc 签名包（补 application-identifier，装不上时用它）
+        run: |
+          bash .github/scripts/adhoc-sign.sh \
+            "app/mobile/ios/App/build/Build/Products/Release-iphoneos/App.app" \
+            "$GITHUB_WORKSPACE/Nalxer-adhoc.ipa"
+
+      - name: 顺带验证模拟器也能编
+        if: always()
+        working-directory: app/mobile/ios/App
+        run: |
+          xcodebuild \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build-sim \
+            CODE_SIGNING_ALLOWED=NO \
+            build || echo "模拟器编译失败，不影响 ipa。"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nalxer-ios-ipa
+          path: |
+            Nalxer-unsigned.ipa
+            Nalxer-adhoc.ipa
+          if-no-files-found: warn
+
+  # iOS 12 分支：Capacitor 3.9.0，部署目标 12.0，前端共用 app/mobile/www
+  ios12:
+    name: iOS 12 未签名 ipa
+    runs-on: macos-15-intel
+    env:
+      VERSION: '26.13.3'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 安装依赖（Capacitor 3.9.0）
+        working-directory: app/mobile-ios12
+        run: npm install --no-audit --no-fund
+
+      - name: 同步 web 资源（复用 app/mobile/www）
+        working-directory: app/mobile-ios12
+        run: npx cap copy ios
+
+      - name: 装 CocoaPods 依赖
+        working-directory: app/mobile-ios12/ios/App
+        run: pod install --repo-update
+
+      - name: 编译归档（部署目标 iOS 12）
+        working-directory: app/mobile-ios12/ios/App
+        run: |
+          xcodebuild \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            IPHONEOS_DEPLOYMENT_TARGET=12.0 \
+            MARKETING_VERSION="$VERSION" \
+            CURRENT_PROJECT_VERSION=1 \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: 打成未签名 ipa
+        run: |
+          APP="app/mobile-ios12/ios/App/build/Build/Products/Release-iphoneos/App.app"
+          ls -la "$(dirname "$APP")" || true
+          if [ ! -d "$APP" ]; then
+            echo "没找到 App.app，构建失败"
+            exit 1
+          fi
+          /usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP/Info.plist" || true
+          mkdir -p payload12/Payload
+          cp -R "$APP" payload12/Payload/
+          cd payload12 && zip -qry "$GITHUB_WORKSPACE/Nalxer-$VERSION-ios12-unsigned.ipa" Payload
+          cd .. && unzip -l "$GITHUB_WORKSPACE/Nalxer-$VERSION-ios12-unsigned.ipa" | head -20
+
+      - name: 再出一份 ad-hoc 签名包（iOS 12）
+        run: |
+          bash .github/scripts/adhoc-sign.sh \
+            "app/mobile-ios12/ios/App/build/Build/Products/Release-iphoneos/App.app" \
+            "$GITHUB_WORKSPACE/Nalxer-$VERSION-ios12-adhoc.ipa"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nalxer-ios12-ipa
+          path: |
+            Nalxer-*-ios12-unsigned.ipa
+            Nalxer-*-ios12-adhoc.ipa
+          if-no-files-found: warn

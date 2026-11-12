@@ -1,0 +1,51 @@
+/* 老系统兼容层（iOS 12 及更早的 WebKit）
+   只在 html.no-flex-gap 下生效，现代浏览器完全不受影响。 */
+
+/* position: sticky 在 iOS 12 需要 -webkit- 前缀 */
+.topbar,
+.chat-head {
+  position: -webkit-sticky;
+  position: sticky;
+}
+
+/* 老 WebKit 不认识 flex 的 gap，用外边距还原间距 */
+html.no-flex-gap .seg > * { margin-right: 2px; }
+html.no-flex-gap .seg > *:last-child { margin-right: 0; }
+
+html.no-flex-gap .tabs .tab { margin: 0 2px; }
+html.no-flex-gap .tabs .tab:first-child { margin-left: 0; }
+html.no-flex-gap .tabs .tab:last-child { margin-right: 0; }
+
+html.no-flex-gap .chat-input-bar > * { margin-right: 8px; }
+html.no-flex-gap .chat-input-bar > *:last-child { margin-right: 0; }
+
+html.no-flex-gap .row > * { margin-right: 10px; }
+html.no-flex-gap .row > *:last-child { margin-right: 0; }
+
+html.no-flex-gap .list-item > * { margin-right: 10px; }
+html.no-flex-gap .list-item > *:last-child { margin-right: 0; }
+
+html.no-flex-gap .set-row > * { margin-right: 12px; }
+html.no-flex-gap .set-row > *:last-child { margin-right: 0; }
+
+html.no-flex-gap .switch-row > * { margin-right: 12px; }
+html.no-flex-gap .switch-row > *:last-child { margin-right: 0; }
+
+html.no-flex-gap .staff-head > * { margin-right: 8px; }
+html.no-flex-gap .staff-head > *:last-child { margin-right: 0; }
+
+html.no-flex-gap .card-title > * { margin-right: 8px; }
+html.no-flex-gap .card-title > *:last-child { margin-right: 0; }
+
+/* 老 WebKit 的滚动惯性 */
+.page,
+.chat-list,
+.modal-card {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 毛玻璃在老系统上退化成半透明底色，避免糊成一片 */
+html.no-flex-gap body[data-skin="ios"] .card,
+html.no-flex-gap body[data-skin="ios"] .topbar {
+  background: rgba(255, 255, 255, 0.92);
+}

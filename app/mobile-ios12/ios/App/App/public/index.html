@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <title>Nalxer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Nalxer">
+  <meta name="format-detection" content="telephone=no">
+  <meta name="theme-color" content="#f4f6fa">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="style.css?v=102">
+  <link rel="stylesheet" href="legacy.css?v=102">
+  <script src="legacy.js?v=102" defer></script>
+</head>
+<body>
+
+<!-- 开屏 -->
+<div id="splash" class="splash">
+  <div class="splash-inner">
+    <div class="splash-mark">N</div>
+    <div class="splash-name">Nalxer</div>
+    <div class="splash-sub">服务器数据 · 手机版</div>
+    <div class="splash-bar"><i></i></div>
+  </div>
+</div>
+
+<!-- 登录 -->
+<div id="login" class="login-wrap">
+  <div class="brand">
+    <div class="brand-mark">N</div>
+    <h1>Nalxer</h1>
+    <p>服务器数据 · 手机版</p>
+  </div>
+  <div class="field">
+    <label for="f-server">服务器接口</label>
+    <input id="f-server" type="text" inputmode="url" autocapitalize="off" spellcheck="false"
+           placeholder="http://aam.rainplay.cn:49282">
+  </div>
+  <div class="field">
+    <label for="f-name">游戏 ID</label>
+    <input id="f-name" type="text" autocapitalize="off" spellcheck="false" placeholder="你在服务器里的名字">
+  </div>
+  <div class="field">
+    <label for="f-pass">密码</label>
+    <input id="f-pass" type="password" placeholder="进游戏用的那个密码">
+  </div>
+  <button id="btn-login" class="btn btn-primary btn-block" style="margin-top:8px">登录</button>
+  <button id="btn-diag" class="btn btn-block" style="margin-top:8px">测试连接</button>
+  <p class="hint" style="margin-top:14px">用游戏里的 ID 和密码登录，和进服时是同一个密码。</p>
+  <p id="login-err" class="tip-err hidden"></p>
+  <div id="diag-box" class="hidden" style="margin-top:10px;font-size:13px;line-height:1.6;color:var(--muted);word-break:break-all"></div>
+</div>
+
+<!-- 身份验证弹窗：盖在整个界面上，验完才让用 -->
+
+
+<!-- su：验证过身份之后执行任意命令 -->
+
+
+<!-- 主界面 -->
+<div id="msg-pop" class="msg-pop"><div class="msg-pop-mark">💬</div><div class="msg-pop-body"><div class="msg-pop-name" id="msg-pop-name"></div><div class="msg-pop-text" id="msg-pop-text"></div></div></div>
+
+  <div id="app" class="hidden">
+  <header class="topbar">
+    <div>
+      <h1 id="page-title">我的数据</h1>
+      <p class="sub" id="page-sub">—</p>
+    </div>
+    <button id="btn-refresh" class="icon-btn" title="刷新">↻</button>
+  </header>
+
+  <main>
+    <!-- 我的 -->
+    <section id="page-me" class="page hidden">
+      <div class="card">
+        <div class="profile">
+          <div class="avatar" id="me-avatar">?</div>
+          <div class="who">
+            <div class="name"><span id="me-name">—</span><i id="me-dot" class="dot"></i></div>
+            <div class="badges" id="me-badges"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stat-row">
+        <div class="stat"><span>金币</span><b id="me-coins">—</b></div>
+        <div class="stat"><span>点券</span><b id="me-points">—</b></div>
+        <div class="stat"><span>等级</span><b id="me-level">—</b></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><h2>经验进度</h2><span class="side" id="me-exp-text">—</span></div>
+        <div class="exp-bar"><i id="me-exp-fill"></i></div>
+        <div class="hint" id="me-exp-total">总经验 —</div>
+      </div>
+
+      <div class="card" id="checkin-card">
+        <div class="checkin-head">
+          <div class="checkin-icon">📅</div>
+          <div style="flex:1 1 auto">
+            <div class="checkin-num">连续 <b id="ck-streak">0</b> 天 · 累计 <b id="ck-total">0</b> 天</div>
+            <div class="hint" id="ck-hint">每天 0 点重置，随机 5000 金币或 1-5 点券</div>
+          </div>
+          <button id="btn-checkin" class="btn btn-primary btn-mini">签到</button>
+        </div>
+      </div>
+
+      <div class="card" id="me-live-card">
+        <div class="card-title"><h2>实时状态</h2><span class="side" id="me-live-tag">—</span></div>
+        <div class="kv" id="me-live"></div>
+      </div>
+
+      <div class="card hidden" id="me-ban-card">
+        <div class="card-title"><h2 style="color:var(--red)">账号被封禁</h2></div>
+        <div class="kv" id="me-ban"></div>
+      </div>
+
+      <div class="card" id="report-card">
+        <div class="card-title"><h2>举报玩家</h2><span class="side" id="report-sum"></span></div>
+        <input id="f-report-name" type="text" autocapitalize="off" spellcheck="false" placeholder="被举报玩家的游戏 ID">
+        <input id="f-report-why" type="text" autocapitalize="off" spellcheck="false" placeholder="理由（刷屏 / 外挂 / 骂人…）" style="margin-top:8px">
+        <button id="btn-report" class="btn btn-primary btn-block" style="margin-top:10px">提交举报</button>
+        <div class="hint" style="margin-top:8px">管理员在服务器里会收到这条举报，处理结果会显示在下面。</div>
+        <div id="my-reports" style="margin-top:10px"></div>
+      </div>
+
+      <div class="card">
+        <div class="kv" id="me-rows"></div>
+      </div>
+    </section>
+
+    <!-- 聊天 -->
+    <section id="page-chat" class="page hidden">
+      <div class="chat-head" id="chat-head">
+        <div class="chat-head-row">
+          <h2 id="chat-title">服务器公屏</h2>
+          <span class="side" id="chat-online">—</span>
+        </div>
+        <div class="seg" id="chat-channels">
+          <button class="seg-btn active" data-chat="world">公屏</button>
+          <button class="seg-btn" data-chat="team">队伍频道</button>
+          <button class="seg-btn" data-chat="manage">队伍</button>
+        </div>
+        <div class="seg hidden" id="chat-team-pick"></div>
+        <p class="hint hidden" id="chat-team-hint"></p>
+      </div>
+
+      <div class="chat-list" id="chat-list"></div>
+      <div class="chat-input-bar">
+        <input id="f-chat" type="text" maxlength="200" placeholder="说点什么…" autocapitalize="off">
+        <button id="btn-chat-send" class="btn btn-primary btn-send">发送</button>
+        <button id="btn-transfer" class="btn btn-send" title="转账">转账</button>
+      </div>
+
+      <div id="chat-team-view" class="hidden"></div>
+      <div id="team-manage" class="hidden">
+        <div class="card hidden" id="team-mine">
+              <div class="team-head">
+              <div>
+              <div class="team-name" id="team-name">—</div>
+              <div class="hint" id="team-sub">—</div>
+              </div>
+              <button id="btn-team-leave" class="btn btn-mini hidden">退出</button>
+              </div>
+              <div id="team-members" style="margin-top:8px"></div>
+              <div class="action-grid" style="margin-top:10px" id="team-actions"></div>
+              </div>
+              
+              <div class="card" id="team-none">
+              <div class="card-title"><h2>还没有队伍</h2></div>
+              <div class="search-row">
+              <input id="f-team-name" type="text" maxlength="12" placeholder="新队伍名字（最多 12 字）">
+              <button id="btn-team-create" class="btn btn-primary">建队</button>
+              </div>
+              <p class="hint" style="margin:10px 2px 0">建队后你就是队长，可以邀请、踢人、转让、解散。</p>
+              </div>
+              
+              <div class="card">
+              <div class="card-title"><h2>服务器上的队伍</h2><span class="side" id="team-count">—</span></div>
+              <div id="team-list"></div>
+              </div>
+      </div>
+    </section>
+
+    <!-- 头衔 -->
+    <section id="page-titles" class="page hidden">
+      <div class="card">
+        <div class="card-title">
+          <h2>当前头衔</h2>
+          <button id="btn-title-off" class="btn btn-mini">卸下</button>
+        </div>
+        <div class="team-name" id="title-active">—</div>
+        <div class="hint" id="title-active-sub">—</div>
+      </div>
+      <div class="card">
+        <div class="card-title"><h2>我的头衔</h2><span class="side" id="title-count">—</span></div>
+        <div id="title-list"></div>
+      </div>
+    </section>
+
+    <!-- 更多：在线玩家 / 管理 / 设置 -->
+    <section id="page-admin" class="page hidden">
+      <div class="card" id="admin-card">
+        <div class="card-title"><h2>管理</h2><span class="side" style="color:var(--green)">有权限</span></div>
+        <div class="seg" id="admin-tabs" style="margin-bottom:12px">
+          <button class="seg-btn active" data-admin="online">在线</button>
+          <button class="seg-btn" data-admin="player">玩家</button>
+          <button class="seg-btn" data-admin="report">举报</button>
+          <button class="seg-btn" data-admin="penalty">惩罚</button>
+          <button class="seg-btn" data-admin="fake">假人</button>
+          <button class="seg-btn" data-admin="cmd">命令</button>
+          <button class="seg-btn hidden" data-admin="su" id="tab-su">su 控制台</button>
+        </div>
+
+        <div id="admin-online">
+          <div class="card">
+            <div class="card-title">
+              <h2>在线玩家</h2>
+              <button id="btn-load-players" class="btn btn-mini">刷新</button>
+            </div>
+            <div id="online-list"><p class="empty">还没有加载</p></div>
+          </div>
+          <div class="card">
+            <div class="card-title">
+              <h2>管理层</h2>
+              <span class="side" id="staff-sum">—</span>
+            </div>
+            <div class="hint" style="margin:-4px 0 8px">服主 / 副服主 / 管理员 / 协管，在不在线都列；先按身份，再在线优先。</div>
+            <div id="staff-list"><p class="empty">还没有加载</p></div>
+          </div>
+        </div>
+
+        <div id="admin-player" class="hidden">
+          <div class="search-row">
+            <input id="f-search" type="text" autocapitalize="off" placeholder="搜玩家名字">
+            <button id="btn-search" class="btn btn-primary">搜索</button>
+          </div>
+          <div id="search-list" style="margin-top:10px"></div>
+          <div id="player-detail" class="hidden" style="margin-top:10px"></div>
+        </div>
+
+        <div id="admin-report" class="hidden">
+          <div class="search-row">
+            <button id="btn-load-reports" class="btn btn-primary">刷新待处理</button>
+            <span class="hint" id="report-count"></span>
+          </div>
+          <div class="seg" id="report-tabs" style="margin:8px 0">
+            <button class="seg-btn active" data-report-tab="all">全部</button>
+            <button class="seg-btn" data-report-tab="pending">待处理</button>
+            <button class="seg-btn" data-report-tab="handled">已处理</button>
+          </div>
+          <div id="report-list" style="margin-top:10px"></div>
+        </div>
+
+        <div id="admin-penalty" class="hidden">
+          <div class="search-row">
+            <button id="btn-load-penalties" class="btn btn-primary">刷新惩罚列表</button>
+            <span class="hint" id="penalty-count"></span>
+          </div>
+          <div id="penalty-list" style="margin-top:10px"></div>
+        </div>
+
+        <div id="admin-fake" class="hidden">
+          <div class="search-row">
+            <input id="f-fake" type="text" maxlength="16" placeholder="假人名字（英文/数字，12 字内）">
+            <button id="btn-fake-add" class="btn btn-primary">召唤</button>
+          </div>
+          <p class="hint" style="margin:8px 2px">召唤要在游戏里（用管理员账号进服），移除随时都能点。</p>
+          <div class="sub-card" style="margin-top:12px">
+            <div class="card-title" style="margin-bottom:8px"><h2 style="font-size:14px">假人设置</h2>
+              <span class="side" id="fake-settings-sub">—</span></div>
+            <div class="kv" style="margin-bottom:10px">
+              <span>游戏模式</span><b id="fake-gm-text">—</b>
+              <span>是否无敌</span><b id="fake-inv-text">—</b>
+            </div>
+            <div class="seg">
+              <button class="seg-btn" data-fake-set="gamemode" data-value="CREATIVE">创造</button>
+              <button class="seg-btn" data-fake-set="gamemode" data-value="SURVIVAL">生存</button>
+              <button class="seg-btn" data-fake-set="gamemode" data-value="ADVENTURE">冒险</button>
+            </div>
+            <div class="seg" style="margin-top:8px">
+              <button class="seg-btn" data-fake-set="invulnerable" data-value="true">开无敌</button>
+              <button class="seg-btn" data-fake-set="invulnerable" data-value="false">关无敌</button>
+            </div>
+            <p class="hint" style="margin:8px 2px 0">改完对以后召唤的假人生效；已经在线的点它右边的「重生」就会套用。</p>
+          </div>
+          <div id="fake-list" style="margin-top:6px"></div>
+        </div>
+      </div>
+
+        <div id="admin-cmd" class="hidden">
+        <div class="card">
+          <p class="hint" style="margin:0 0 10px">
+            点一条命令，参数会填进下面的框，补全后再按执行。危险命令会二次确认。
+          </p>
+          <div class="seg" id="cmd-groups" style="margin-bottom:12px"></div>
+          <div class="cmd-list" id="cmd-list"></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><h2>要执行的命令</h2></div>
+          <input id="f-cmd" type="text" autocapitalize="off" spellcheck="false" placeholder="ltab info">
+          <button id="btn-run" class="btn btn-primary btn-block" style="margin-top:10px">执行</button>
+          <div id="cmd-out" class="cmd-out hidden"></div>
+        </div>
+    
+        </div>
+
+        <div id="admin-su" class="hidden">
+          <div class="card">
+            <div class="card-title"><h2>服务器控制台</h2><span class="side" id="su-sub">控制台身份</span></div>
+            <div class="mc-console" id="su-log"></div>
+            <div class="console-bar">
+              <span class="prompt">&gt;</span>
+              <input id="f-su2" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="例如 say 服务器今晚八点维护">
+              <button id="btn-su-run" class="btn btn-primary btn-send">发送</button>
+            </div>
+            <div class="seg" style="margin-top:10px">
+              <button class="seg-btn" id="btn-su-clear">清屏</button>
+              <button class="seg-btn" id="btn-su-stop-note">能执行什么？</button>
+            </div>
+          </div>
+        </div>
+
+    </section>
+
+    <section id="page-pdetail" class="page hidden">
+      <button id="btn-pdetail-back" class="btn btn-block" style="margin-bottom:10px">← 返回玩家列表</button>
+      <div id="pdetail-body"></div>
+    </section>
+
+    <section id="page-more" class="page hidden">
+      <div class="card">
+        <div class="card-title"><h2>账号</h2></div>
+        <div class="kv">
+          <span>登录账号</span><b id="set-name">—</b>
+          <span>服务器</span><b id="set-server">—</b>
+          <span>管理权限</span><b id="set-admin">否</b>
+          <span>玩家身份</span><b id="set-role">—</b>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><h2>显示</h2></div>
+        <div class="switch-row">
+          <div>
+            <div style="font-weight:600">深色模式</div>
+            <div class="hint">默认浅色，按你的习惯切</div>
+          </div>
+          <button id="sw-theme" class="switch" role="switch" aria-checked="false"></button>
+        </div>
+        <div class="switch-row">
+          <div>
+            <div style="font-weight:600">软件内提醒</div>
+            <div class="hint">顶部弹一条 + 提示音 + 振动，2 秒自动收</div>
+          </div>
+          <button id="sw-notify" class="switch" role="switch" aria-checked="true"><i></i></button>
+        </div>
+        <div class="switch-row">
+          <div>
+            <div style="font-weight:600">软件外提醒</div>
+            <div class="hint">退到后台也推一条系统通知，需要通知权限</div>
+          </div>
+          <button id="sw-notice-out" class="switch" role="switch" aria-checked="true"><i></i></button>
+        </div>
+        <button class="set-row" id="btn-theme" style="border-bottom:0">
+          <div>
+            <div style="font-weight:600">主题</div>
+            <div class="hint" id="set-theme-hint">默认 · 天蓝色</div>
+          </div>
+          <span class="chev">›</span>
+        </button>
+      </div>
+
+      <div class="card hidden" id="admin-panel-card">
+        <div class="card-title"><h2>管理</h2><span class="side" style="color:var(--green)">有权限</span></div>
+        <div class="switch-row" id="su-switch-row" style="display:none">
+          <div>
+            <div style="font-weight:600">启用 su 控制台</div>
+            <div class="hint">服主专用，打开后管理页会多一个 su 控制台</div>
+          </div>
+          <button id="sw-su" class="switch" role="switch" aria-checked="false"></button>
+        </div>
+        <div class="hint" id="su-switch-hint" style="display:none">命令控制台只对服主账号开放，你这个号没有这个权限。</div>
+        <div class="switch-row" style="border-bottom:0">
+          <div>
+            <div style="font-weight:600">Linux 系插件</div>
+            <div class="hint" id="linux-sum">开关、重载、直接改 config.yml</div>
+          </div>
+        </div>
+        <button id="btn-linux" class="btn btn-block">打开插件管理</button>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><h2>接口地址</h2></div>
+        <input id="f-server-edit" type="text" inputmode="url" autocapitalize="off" spellcheck="false"
+               placeholder="http://aam.rainplay.cn:49282">
+        <p class="hint" style="margin:8px 2px 10px">不写 http:// 会自动补上；端口写冒号后面。</p>
+        <div class="seg">
+          <button id="btn-save-server" class="seg-btn active">保存地址</button>
+          <button id="btn-test-server" class="seg-btn">测试连接</button>
+          <button id="btn-reset-server" class="seg-btn">恢复默认</button>
+        </div>
+        <div id="server-msg" class="hint" style="min-height:18px;margin-top:8px"></div>
+      </div>
+
+      <div class="card hidden" id="status-card">
+        <div class="card-title"><h2>插件联动状态</h2><span class="side" id="status-sub">—</span></div>
+        <div id="status-list"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><h2>关于软件</h2></div>
+        <div class="kv">
+          <span>软件名称</span><b>Nalxer App</b>
+          <span>版本</span><b>26.12.2 正式版</b>
+          <span>作者</span><b>Linux582021</b>
+          <span>官网</span><b>linux.nalxer.top</b>
+          <span>配套服务端</span><b>NalxerApp 26.12.2</b>
+        </div>
+        <p class="hint" style="margin:10px 2px 0">数据来自服务器上的 InTheNameOfLinux 与 Linux 系插件；App 只是把这些数据搬到手机上，不改动任何存档。</p>
+      </div>
+
+      <button id="btn-logout" class="btn btn-block" style="margin-bottom:8px">退出登录</button>
+
+      <div class="about-foot">
+        <span>Nalxer App 26.12.2 正式版</span>
+        <span class="dot">·</span>
+        <span>作者 Linux582021</span>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabs">
+    <button class="tab active" data-page="me"><span class="ico">👤</span><span>我的</span></button>
+    <button class="tab" data-page="chat"><span class="ico">💬</span><span>社交</span><span id="chat-dot" class="badge-dot hidden"></span></button>
+    <button class="tab" data-page="title"><span class="ico">🏷</span><span>头衔</span></button>
+    <button class="tab hidden" id="tab-admin" data-page="admin"><span class="ico">🛠</span><span>管理</span></button>
+    <button class="tab" data-page="more"><span class="ico">⋯</span><span>更多</span></button>
+  </nav>
+</div>
+
+
+<!-- 主题：风格 + 颜色 -->
+<div id="theme-modal" class="modal hidden">
+  <div class="modal-card">
+    <div class="modal-head">
+      <div class="modal-mark">🎨</div>
+      <div class="modal-title">
+        <h2>主题</h2>
+        <p id="theme-sub">风格和颜色都能换，改完立刻生效</p>
+      </div>
+    </div>
+    <div class="hint" style="margin:14px 0 7px">风格</div>
+    <div class="seg" id="theme-styles">
+      <button class="seg-btn" data-theme-style="default">默认</button>
+      <button class="seg-btn" data-theme-style="miuix">Miuix</button>
+      <button class="seg-btn" data-theme-style="ios">iOS</button>
+    </div>
+    <div class="switch-row" style="margin-top:16px;border-bottom:0;padding-bottom:0">
+      <div>
+        <span>悬浮导航栏</span>
+        <div class="hint">底部导航变成浮起来的一颗胶囊（iOS 风格默认开）</div>
+      </div>
+      <button id="sw-navfloat" class="switch" role="switch" aria-checked="false"><i></i></button>
+    </div>
+    <div class="hint" style="margin:16px 0 8px">颜色</div>
+    <div class="swatches" id="theme-swatches">
+      <button class="swatch" data-accent="sky"><i style="background:#1f7ae0"></i><span>天蓝色</span></button>
+      <button class="swatch" data-accent="pink"><i style="background:#e0568a"></i><span>淡粉色</span></button>
+      <button class="swatch" data-accent="green"><i style="background:#1f9d63"></i><span>淡绿色</span></button>
+      <button class="swatch" data-accent="antique"><i style="background:#a9793f"></i><span>古董白</span></button>
+      <button class="swatch" data-accent="black"><i style="background:#1b1f27"></i><span>黑色</span></button>
+      <button class="swatch" data-accent="gray"><i style="background:#6b7280"></i><span>灰色</span></button>
+    </div>
+    <button id="btn-theme-close" class="btn btn-block" style="margin-top:16px">完成</button>
+  </div>
+</div>
+
+<!-- Linux 系插件管理 -->
+<div id="transfer-modal" class="modal hidden">
+  <div class="modal-card">
+    <div class="modal-head">
+      <div class="modal-mark">💸</div>
+      <div class="modal-title">
+        <h2>转账</h2>
+        <p id="transfer-sub">金币走 Vault，点券走 PlayerPoints</p>
+      </div>
+    </div>
+    <div class="seg" id="transfer-tabs">
+      <button class="seg-btn active" data-ttab="coins">金币</button>
+      <button class="seg-btn" data-ttab="points">点券</button>
+    </div>
+    <div class="hint" id="transfer-balance" style="margin:10px 2px 6px">—</div>
+    <input id="f-trans-target" type="text" placeholder="转给谁（游戏 ID）" autocapitalize="off" spellcheck="false">
+    <input id="f-trans-amount" type="number" min="1" step="1" placeholder="金额" inputmode="numeric">
+    <p id="transfer-msg" class="hint"></p>
+    <button id="btn-transfer-go" class="btn btn-primary btn-block">确认转账</button>
+    <button id="btn-transfer-close" class="btn btn-block" style="margin-top:8px">取消</button>
+  </div>
+</div>
+
+<div id="linux-modal" class="modal hidden">
+  <div class="modal-card">
+    <div class="modal-head">
+      <div class="modal-mark">🧩</div>
+      <div class="modal-title">
+        <h2>Linux 系插件</h2>
+        <p>启用 / 停用 / 重载 / 改配置</p>
+      </div>
+    </div>
+    <div id="linux-list" class="modal-list"><p class="empty">读取中…</p></div>
+    <button id="btn-linux-close" class="btn btn-block" style="margin-top:10px">关闭</button>
+  </div>
+</div>
+
+<!-- 插件配置编辑 -->
+<div id="linux-cfg-modal" class="modal hidden">
+  <div class="modal-card">
+    <div class="modal-head">
+      <div class="modal-mark">📝</div>
+      <div class="modal-title">
+        <h2 id="linux-cfg-title">config.yml</h2>
+        <p id="linux-cfg-sub">—</p>
+      </div>
+    </div>
+    <textarea id="f-linux-cfg" class="cfg-area" spellcheck="false" autocapitalize="off"></textarea>
+    <p id="linux-cfg-msg" class="hint"></p>
+    <button id="btn-linux-cfg-save" class="btn btn-primary btn-block">保存并重载</button>
+    <button id="btn-linux-cfg-close" class="btn btn-block" style="margin-top:8px">返回</button>
+  </div>
+</div>
+
+<div id="fatal" class="hidden"></div>
+<div id="toast" class="toast hidden"></div>
+<script src="app.js?v=102"></script>
+</body>
+</html>

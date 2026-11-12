@@ -1,0 +1,10 @@
+{
+  "appId": "top.nalxer.app",
+  "appName": "Nalxer",
+  "webDir": "../mobile/www",
+  "bundledWebRuntime": false,
+  "ios": {
+    "contentInset": "never",
+    "scrollEnabled": true
+  }
+}

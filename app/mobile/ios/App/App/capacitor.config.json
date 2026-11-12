@@ -1,0 +1,17 @@
+{
+	"appId": "top.nalxer.app",
+	"appName": "LinuxAPP",
+	"webDir": "www",
+	"bundledWebRuntime": false,
+	"android": {
+		"allowMixedContent": true
+	},
+	"server": {
+		"androidScheme": "https"
+	},
+	"packageClassList": [
+		"HapticsPlugin",
+		"LocalNotificationsPlugin",
+		"StatusBarPlugin"
+	]
+}

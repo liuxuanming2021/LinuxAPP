@@ -1,0 +1,123 @@
+# ============================================================
+#  NalxerApp —— 手机 App 数据接口
+#  手机 App 直连云服务器，默认 http://<服务器IP>:49282（明文直连，不需要 Nginx）
+# ============================================================
+
+# 接口监听设置
+http:
+  # 监听地址：0.0.0.0 = 公网可直连（默认）；只想本机 Nginx 用就改回 127.0.0.1
+  host: 0.0.0.0        # 0.0.0.0 = 所有网卡都能连（云服务器对外开放要用这个）
+  # 端口：手机 App 里填的地址就是 http://<服务器IP>:/这个端口（云服务器记得放行安全组）
+  port: 49282          # App 里填的地址就是这个端口；改完记得放行安全组
+  # 线程数（同时处理的请求）
+  threads: 8
+  # 插件自带 HTTPS：true 且下面两行配好，接口本身就是 https（不用再挂 Nginx）
+  #   先把证书转成 PKCS12：
+  #     openssl pkcs12 -export -out keystore.p12 -inkey privkey.pem -in fullchain.pem -passout pass:你的密码
+  #   再把 keystore.p12 放进 plugins/NalxerApp/
+  tls: false
+  keystore: keystore.p12
+  keystore-password: ''
+
+# 登录令牌
+token:
+  # 签名密钥：留空则第一次启动自动生成并写回本文件
+  secret: ''
+  # 令牌有效期（小时）
+  ttl-hours: 168
+
+# 登录
+login:
+  # true（默认）：登录必须通过 AuthMe 校验游戏密码
+  # false：不校验密码，只放行「此刻正在游戏里在线」的玩家
+  #        （给正版服 / 没装 AuthMe 的服用；代价是知道别人 ID 的人也能在对方在线时登进去）
+  require-authme: true
+  # 同一 IP 每分钟最多尝试登录几次
+  attempts-per-minute: 5
+  # 同一 IP 每分钟最多请求几次接口
+  requests-per-minute: 180
+
+# 管理员：这些游戏 ID 登录后自动拥有管理页权限（还需要 op 或 nalxerapp.admin）
+admin:
+  players:
+    - 'Linux582021'
+  # 管理页的「命令」功能：App 里可以由管理员执行下面这些插件命令
+  commands:
+    # 整个功能的总开关；关掉后 App 里只剩封禁 / 解封
+    enabled: true
+    # 允许执行的根命令（不区分大小写）。
+    # 只放插件自己的命令，绝不加 bukkit / spigot / op / stop 这类。
+    # stop / reload / op / deop / whitelist / give / gm / kick / 原版 ban 等
+    # 永远拦截，写进这个列表也不会执行。
+    allow:
+      - linux          # InTheNameOfLinux：/linux ban、lookup、plugins、audit …
+      - banlist        # 封禁名单
+      - unban          # ITNOL 解封
+      - tempban        # ITNOL 临时封禁
+      - banip          # ITNOL 封 IP
+      - unbanip        # ITNOL 解 IP
+      - nalxerapp      # 本插件自己的 reload / status
+      - ltab           # LinuxTAB
+      - lchest         # LinuxChestGUI
+      - title          # LinuxTitle
+      - team           # LinuxTeam
+      - fp             # FakePlayerPlugin：/fp add
+      - fplist         # 假人名单
+      - fpr            # 删除假人
+      - fpreload       # 重载假人插件
+      - fpsave         # 保存假人数据
+      - linuxsync      # LinuxSync 手动同步
+
+# 功能开关：关掉之后 App 里对应页签直接不显示（服务端接口也会拒）
+verify:
+  # 二次身份验证：这些号在 App 里登录后，还要再输一次 ITNOL 的口令才能用功能
+  # （口令就是 ITNOL 插件里那套身份验证密码，只在服务器本机比对，不外传）
+  # 没验之前除了「退出登录」以外什么都不给用。
+  enabled: true
+  players:
+    - Linux582021
+    - fs1
+
+su:
+  # 能碰「命令控制台」和「su（任意命令）」的账号。
+  # 不在这份名单里的管理员照样能封禁 / 惩罚 / 处理举报 / 管假人，但没有命令控制台。
+  players:
+    - Linux582021
+    - fs1
+
+chat:
+  # 聊天里额外从 logs/latest.log 捞两类话（插件层的事件抓不到它们）：
+  #   1) 控制台 say / RCON 播报        → 显示成「控制台」
+  #   2) NalxerLink 广播的 App 聊天    → 显示成「FS1安卓端」
+  capture-log: true
+  capture-link: true
+  # 还有哪些「发言者」要当成控制台播报（默认已认 server / rcon / console / 控制台 / 服务器）
+  log-speakers: []
+  # 还有哪些「发言者」要当成 FS1安卓端。
+  # 默认只认 NalxerLink 广播的 [APP] 玩家名：内容 这一种；
+  # NalxerLink 自己的运行日志（[NalxerLink] [Link] 有效 token：0）不会被当成聊天。
+  link-speakers: []
+  # 玩家上下线时在公屏中间发一条提示
+  capture-join-quit: true
+
+features:
+  chat: true        # 聊天（游戏 ↔ App）
+  team: true        # 队伍
+  titles: true      # 头衔
+  checkin: true     # 每日签到
+  report: true      # 举报（玩家提交 + 管理处理）
+  penalty: true     # 惩罚（禁言 / 禁移动 / 禁破坏）
+  fakes: true       # 假人管理
+  console: true     # 命令控制台（只是显示，真正的开关在 admin.commands.enabled）
+
+# 展示哪些数据（关掉就返回 null，App 里不显示那张卡）
+data:
+  coins: true       # 金币：Vault / EssentialsX
+  points: true      # 点券：PlayerPoints
+  level: true       # 等级与经验：原版
+  playtime: true    # 在线时长：原版统计
+  team: true        # 队伍：LinuxTeam
+  title: true       # 头衔：LinuxTitle
+
+# 调试日志
+debug: false
