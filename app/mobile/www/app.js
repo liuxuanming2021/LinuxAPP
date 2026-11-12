@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  var DEFAULT_SERVER = 'http://aam.rainplay.cn:49282';
+  var DEFAULT_SERVER = 'https://aam.rainplay.cn:49282';
 
   var LS = {
     server: 'nalxer.server',
@@ -81,7 +81,9 @@
   function normServer(v) {
     var s = String(v == null ? '' : v).trim();
     if (!s) return DEFAULT_SERVER;
-    if (!/^https?:\/\//i.test(s)) s = 'http://' + s;
+    if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
+    // 明文 http 一律升级为 https：服务器默认不再接受明文请求
+    s = s.replace(/^http:\/\//i, 'https://');
     return s.replace(/\/+$/, '');
   }
 
@@ -149,6 +151,7 @@
     state.myTeams = [];
     state.reports = [];
     persist();
+    cryptoInit();
     renderServersUi();
     if (!state.token) {
       showLogin();
@@ -307,46 +310,153 @@
 
   // ── 请求 ─────────────────────────────────────────────
 
+
+  // ── 端到端附加加密（TLS 之上再套一层 AES-GCM）────────────
+  var CRYPTO_SESSION = { ready: false, id: null, key: null };
+
+  function b64FromBytes(bytes) {
+    var bin = '';
+    for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  }
+
+  function bytesFromB64(b64) {
+    var bin = atob(b64);
+    var out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  function cryptoUsable() {
+    return typeof crypto !== 'undefined' && crypto.subtle && location.protocol === 'https:';
+  }
+
+  function cryptoInit() {
+    CRYPTO_SESSION.ready = false;
+    if (!cryptoUsable()) return Promise.resolve(false);
+    var base = state.server;
+    return fetch(base + '/api/session', { headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.text(); })
+      .then(function (txt) {
+        var d = null;
+        try { d = JSON.parse(txt); } catch (e) { return false; }
+        if (!d || !d.ok || !d.pub) return false;
+        var der = bytesFromB64(d.pub);
+        return crypto.subtle.importKey('spki', der.buffer, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt'])
+          .then(function (pub) {
+            return crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt'])
+              .then(function (key) {
+                return crypto.subtle.exportKey('raw', key).then(function (raw) {
+                  return crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, raw).then(function (wrapped) {
+                    var id = '';
+                    var rnd = new Uint8Array(8);
+                    crypto.getRandomValues(rnd);
+                    for (var i = 0; i < rnd.length; i++) id += ('0' + rnd[i].toString(16)).slice(-2);
+                    return fetch(base + '/api/session', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ id: id, key: b64FromBytes(new Uint8Array(wrapped)) })
+                    }).then(function (r2) { return r2.text(); }).then(function (t2) {
+                      var ok = false;
+                      try { ok = JSON.parse(t2).ok === true; } catch (e) { ok = false; }
+                      if (!ok) return false;
+                      CRYPTO_SESSION.id = id;
+                      CRYPTO_SESSION.key = key;
+                      CRYPTO_SESSION.ready = true;
+                      return true;
+                    });
+                  });
+                });
+              });
+          });
+      })
+      .catch(function () { return false; });
+  }
+
+  function cryptoEncrypt(text) {
+    var iv = new Uint8Array(12);
+    crypto.getRandomValues(iv);
+    return crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, CRYPTO_SESSION.key, new TextEncoder().encode(text))
+      .then(function (ct) {
+        var all = new Uint8Array(iv.length + ct.byteLength);
+        all.set(iv, 0);
+        all.set(new Uint8Array(ct), iv.length);
+        return b64FromBytes(all);
+      });
+  }
+
+  function cryptoDecrypt(b64) {
+    var raw = bytesFromB64(b64);
+    var iv = raw.slice(0, 12);
+    var ct = raw.slice(12);
+    return crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, CRYPTO_SESSION.key, ct)
+      .then(function (pt) { return new TextDecoder().decode(pt); });
+  }
+
   function api(path, opts) {
     opts = opts || {};
     var url = state.server + path;
     var headers = { 'Accept': 'application/json' };
     if (opts.body != null) headers['Content-Type'] = 'application/json';
     if (state.token) headers['Authorization'] = 'Bearer ' + state.token;
+    var useEnc = CRYPTO_SESSION.ready && !!CRYPTO_SESSION.id;
+    if (useEnc) {
+      headers['X-Session'] = CRYPTO_SESSION.id;
+      headers['X-Enc'] = '1';
+    }
 
     var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
     var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 10000) : 0;
 
-    return fetch(url, {
-      method: opts.method || (opts.body != null ? 'POST' : 'GET'),
-      headers: headers,
-      body: opts.body != null ? JSON.stringify(opts.body) : undefined,
-      signal: ctrl ? ctrl.signal : undefined
-    }).then(function (r) {
-      if (timer) clearTimeout(timer);
-      return r.text().then(function (txt) {
-        var data = null;
-        try { data = txt ? JSON.parse(txt) : {}; } catch (e) { data = { ok: false, message: '服务器返回的不是 JSON' }; }
-        if (r.status === 401) {
-          if (data && data.message) { state.kicked = data.message; }
-          else if (data && data.code === 'session_kicked') { state.kicked = '这个账号已在另一台设备登录'; }
-          if (!opts.quiet) { logout(true); }
-          var e401 = new Error((data && data.message) || '登录已过期，请重新登录');
-          e401.status = 401;
-          throw e401;
-        }
-        return { status: r.status, data: data };
+    var bodyPromise;
+    if (opts.body != null) {
+      var raw = JSON.stringify(opts.body);
+      bodyPromise = useEnc ? cryptoEncrypt(raw) : Promise.resolve(raw);
+    } else {
+      bodyPromise = Promise.resolve(null);
+    }
+
+    return bodyPromise.then(function (payload) {
+      return fetch(url, {
+        method: opts.method || (opts.body != null ? 'POST' : 'GET'),
+        headers: headers,
+        body: payload == null ? undefined : payload,
+        signal: ctrl ? ctrl.signal : undefined
+      }).then(function (r) {
+        if (timer) clearTimeout(timer);
+        var encResp = r.headers.get('X-Enc') === '1';
+        return r.text().then(function (txt) {
+          var after = encResp && txt ? cryptoDecrypt(txt) : Promise.resolve(txt);
+          return after.then(function (plain) {
+            var data = null;
+            try { data = plain ? JSON.parse(plain) : {}; } catch (e) { data = { ok: false, message: '服务器返回的不是 JSON' }; }
+            if (r.status === 426) {
+              var e426 = new Error((data && data.message) || '服务器要求加密通道，请确认地址是 https://');
+              e426.status = 426;
+              throw e426;
+            }
+            if (r.status === 401) {
+              if (data && data.message) { state.kicked = data.message; }
+              else if (data && data.code === 'session_kicked') { state.kicked = '这个账号已在另一台设备登录'; }
+              if (!opts.quiet) { logout(true); }
+              var e401 = new Error((data && data.message) || '登录已过期，请重新登录');
+              e401.status = 401;
+              throw e401;
+            }
+            return { status: r.status, data: data };
+          });
+        });
       });
     }).catch(function (err) {
       if (timer) clearTimeout(timer);
       if (err && err.name === 'AbortError') {
         throw new Error('连接超时：' + url + '（10 秒没响应，多半是端口没放行或被防火墙挡了）');
       }
-      // 服务器已经说清楚原因了（密码不对 / 要验证 / 没权限），原样抛给界面
       if (err && (err.status || err.needVerify)) throw err;
-      if (err && err.message && err.message.indexOf('登录已过期') >= 0) throw err;
-      if (err && err.message && err.message.indexOf('连接超时') >= 0) throw err;
-      throw new Error('连不上 ' + url + ' —— 看这几点：服务器开着吗 / 云服务器安全组放行这个端口了吗 / plugins 里有没有 LinuxAPP');
+      if (err && err.message && (err.message.indexOf('登录已过期') >= 0 || err.message.indexOf('连接超时') >= 0 || err.message.indexOf('加密通道') >= 0)) throw err;
+      if (err && err.message && err.message.indexOf('解密') >= 0) throw err;
+      var tlsHint = location.protocol === 'https:' ? '' : '（这个版本只允许 https，请把地址改成 https://）';
+      throw new Error('连不上 ' + url + ' —— 看这几点：服务器开着吗 / 安全组放行端口了吗 / 地址是 https:// 吗 / 手机信任服务器证书了吗' + tlsHint);
     });
   }
 
@@ -2859,6 +2969,7 @@
   function boot() {
     initTheme();
     bind();
+    cryptoInit();
     measureTopbar();
     wrapSegs();
     setTimeout(updateSegArrows, 320);

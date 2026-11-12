@@ -11,13 +11,29 @@ http:
   port: 49282          # App 里填的地址就是这个端口；改完记得放行安全组
   # 线程数（同时处理的请求）
   threads: 8
-  # 插件自带 HTTPS：true 且下面两行配好，接口本身就是 https（不用再挂 Nginx）
-  #   先把证书转成 PKCS12：
+  # 插件自带 HTTPS（默认开启，强制加密）
+  #   第一次启动会自动用 keytool 生成自签证书 keystore.p12，
+  #   同时导出 server.crt（手机安装这个并在系统里信任即可）。
+  #   已有正式证书（域名 + Let's Encrypt 等）就把它转成 PKCS12 替换：
   #     openssl pkcs12 -export -out keystore.p12 -inkey privkey.pem -in fullchain.pem -passout pass:你的密码
-  #   再把 keystore.p12 放进 plugins/NalxerApp/
-  tls: false
+  #   再把 keystore.p12 放进 plugins/LinuxAPP/，密码填到 keystore-password
+  tls: true
   keystore: keystore.p12
   keystore-password: ''
+  # 自签证书里的名字与 SAN（有域名就写 DNS:mc.example.com，用 IP 连就写 IP:1.2.3.4）
+  cert-dn: 'CN=LinuxAPP'
+  cert-san: ''
+
+# 安全选项
+security:
+  # 禁止明文 HTTP：true 时，没有证书就宁可不启动接口
+  allow-plaintext: false
+  # 启动时检查 AuthMe 数据库权限（过宽会提示 chmod 600），并保证插件不读它的内容
+  protect-authme: true
+  # 强制应用层加密（AES-GCM）：除 /api/health 与 /api/session 外，明文请求一律 426
+  require-encryption: true
+  # 调试用：是否记录请求体（默认不记，避免密码进日志）
+  log-bodies: false
 
 # 登录令牌
 token:

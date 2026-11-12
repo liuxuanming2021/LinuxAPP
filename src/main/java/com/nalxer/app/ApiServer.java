@@ -9,6 +9,16 @@ import com.sun.net.httpserver.HttpsServer;
 
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLParameters;
+import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
+import java.security.KeyStore;
+import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.util.Base64;
 import java.io.File;
 import java.io.FileInputStream;
 import java.security.KeyStore;
@@ -69,6 +79,124 @@ public final class ApiServer implements HttpHandler {
     private final Map<String, int[]> apiHits = new HashMap<String, int[]>();
     private long windowStart = System.currentTimeMillis() / 60000L;
 
+    /** 端到端附加层：App 与插件之间再做一层 AES-GCM，中间代理只看到密文 */
+    private static final java.util.Map<String, EncSession> ENC_SESSIONS =
+            new java.util.concurrent.ConcurrentHashMap<String, EncSession>();
+
+    private static final class EncSession {
+        final SecretKey key;
+        final String ip;
+        long expires;
+
+        EncSession(SecretKey key, String ip) {
+            this.key = key;
+            this.ip = ip;
+            this.expires = System.currentTimeMillis() + 30L * 60L * 1000L;
+        }
+    }
+
+    private PrivateKey serverKey() throws Exception {
+        KeyStore ks = KeyStore.getInstance("PKCS12");
+        String pass = plugin.getConfig().getString("http.keystore-password", "");
+        try (FileInputStream in = new FileInputStream(keystoreFile())) {
+            ks.load(in, pass.toCharArray());
+        }
+        return (PrivateKey) ks.getKey("linuxapp", pass.toCharArray());
+    }
+
+    private PublicKey serverPub() throws Exception {
+        KeyStore ks = KeyStore.getInstance("PKCS12");
+        String pass = plugin.getConfig().getString("http.keystore-password", "");
+        try (FileInputStream in = new FileInputStream(keystoreFile())) {
+            ks.load(in, pass.toCharArray());
+        }
+        java.security.cert.Certificate c = ks.getCertificate("linuxapp");
+        return c == null ? null : c.getPublicKey();
+    }
+
+    private EncSession encOf(HttpExchange ex) {
+        Object a = ex.getAttribute("enc");
+        if (!(a instanceof EncSession)) {
+            return null;
+        }
+        EncSession e = (EncSession) a;
+        if (e.expires < System.currentTimeMillis()) {
+            return null;
+        }
+        return e;
+    }
+
+    private static String b64(byte[] b) {
+        return Base64.getEncoder().encodeToString(b);
+    }
+
+    private static byte[] unb64(String s) {
+        return Base64.getDecoder().decode(s);
+    }
+
+    private static byte[] encGcm(SecretKey key, byte[] plain) throws Exception {
+        byte[] iv = new byte[12];
+        new java.security.SecureRandom().nextBytes(iv);
+        Cipher c = Cipher.getInstance("AES/GCM/NoPadding");
+        c.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(128, iv));
+        byte[] ct = c.doFinal(plain);
+        byte[] out = new byte[iv.length + ct.length];
+        System.arraycopy(iv, 0, out, 0, iv.length);
+        System.arraycopy(ct, 0, out, iv.length, ct.length);
+        return out;
+    }
+
+    private static byte[] decGcm(SecretKey key, byte[] data) throws Exception {
+        byte[] iv = new byte[12];
+        System.arraycopy(data, 0, iv, 0, 12);
+        Cipher c = Cipher.getInstance("AES/GCM/NoPadding");
+        c.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(128, iv));
+        return c.doFinal(data, 12, data.length - 12);
+    }
+
+    /** GET /api/session：给 App 公钥；POST /api/session：收 AES 会话密钥 */
+    private void session(HttpExchange ex, String method, String body) {
+        try {
+            if ("GET".equals(method)) {
+                PublicKey pub = serverPub();
+                if (pub == null) {
+                    send(ex, 500, obj(false, "服务端没有证书，无法建立加密通道"));
+                    return;
+                }
+                Map<String, Object> out = new LinkedHashMap<String, Object>();
+                out.put("ok", Boolean.TRUE);
+                out.put("alg", "RSA-OAEP-256");
+                out.put("pub", b64(pub.getEncoded()));
+                out.put("ttl", Long.valueOf(1800L));
+                send(ex, 200, Json.write(out));
+                return;
+            }
+            Map<String, String> in = Json.parseFlat(body);
+            String id = in == null ? null : in.get("id");
+            String key = in == null ? null : in.get("key");
+            if (id == null || key == null || id.length() < 8 || id.length() > 64) {
+                send(ex, 400, obj(false, "会话参数不对"));
+                return;
+            }
+            Cipher c = Cipher.getInstance("RSA/ECB/OAEPPadding");
+            c.init(Cipher.DECRYPT_MODE, serverKey(), new javax.crypto.spec.OAEPParameterSpec(
+                    "SHA-256", "MGF1", java.security.spec.MGF1ParameterSpec.SHA256,
+                    javax.crypto.spec.PSource.PSpecified.DEFAULT));
+            byte[] raw = c.doFinal(unb64(key));
+            if (raw.length != 32) {
+                send(ex, 400, obj(false, "会话密钥长度不对"));
+                return;
+            }
+            ENC_SESSIONS.put(id, new EncSession(new SecretKeySpec(raw, "AES"), clientIp(ex)));
+            if (plugin.getConfig().getBoolean("security.log-bodies", false)) {
+                plugin.getLogger().info("加密会话已建立：" + id);
+            }
+            send(ex, 200, obj(true, "加密通道已建立"));
+        } catch (Exception e) {
+            send(ex, 500, obj(false, "建立加密通道失败：" + e.getMessage()));
+        }
+    }
+
     public ApiServer(NalxerApp plugin) {
         this.plugin = plugin;
     }
@@ -80,15 +208,59 @@ public final class ApiServer implements HttpHandler {
         int port = plugin.getConfig().getInt("http.port", 49282);
         int threads = Math.max(2, plugin.getConfig().getInt("http.threads", 8));
 
-        boolean tls = plugin.getConfig().getBoolean("http.tls", false) && tlsReady();
+        boolean wantTls = plugin.getConfig().getBoolean("http.tls", true);
+        if (wantTls) {
+            ensureKeystore();
+        }
+        boolean tls = wantTls && tlsReady();
+        boolean allowPlain = plugin.getConfig().getBoolean("security.allow-plaintext", false);
+
+        if (!tls && !allowPlain) {
+            plugin.getLogger().severe("========================================================");
+            plugin.getLogger().severe(" 没有可用的 TLS 证书，且 security.allow-plaintext = false。");
+            plugin.getLogger().severe(" 为保护账号与聊天内容，接口不会以明文 HTTP 启动。");
+            plugin.getLogger().severe(" 解决：http.tls 设为 true（插件会自动生成自签证书），");
+            plugin.getLogger().severe("       或把证书放到 " + keystoreFile().getAbsolutePath());
+            plugin.getLogger().severe("========================================================");
+            return;
+        }
+
         if (tls) {
             HttpsServer https = HttpsServer.create(new InetSocketAddress(host, port), 64);
-            https.setHttpsConfigurator(new HttpsConfigurator(buildSslContext()));
+            final SSLContext sslContext = buildSslContext();
+            https.setHttpsConfigurator(new HttpsConfigurator(sslContext) {
+                @Override
+                public void configure(com.sun.net.httpserver.HttpsParameters params) {
+                    SSLParameters sp = sslContext.getDefaultSSLParameters();
+                    // 只留 TLS 1.2 / 1.3（按运行时实际支持筛，JDK8 没有 1.3 也不会炸）
+                    SSLParameters sup = sslContext.getSupportedSSLParameters();
+                    java.util.List<String> protos = new java.util.ArrayList<String>();
+                    for (String pr : sup.getProtocols()) {
+                        if ("TLSv1.3".equals(pr) || "TLSv1.2".equals(pr)) {
+                            protos.add(pr);
+                        }
+                    }
+                    if (!protos.isEmpty()) {
+                        sp.setProtocols(protos.toArray(new String[0]));
+                    }
+                    java.util.Set<String> okCiphers = new java.util.HashSet<String>(
+                            java.util.Arrays.asList(sup.getCipherSuites()));
+                    java.util.List<String> ciphers = new java.util.ArrayList<String>();
+                    for (String c : STRONG_CIPHERS) {
+                        if (okCiphers.contains(c)) {
+                            ciphers.add(c);
+                        }
+                    }
+                    if (!ciphers.isEmpty()) {
+                        sp.setCipherSuites(ciphers.toArray(new String[0]));
+                    }
+                    sp.setNeedClientAuth(false);
+                    params.setSSLParameters(sp);
+                }
+            });
             server = https;
         } else {
-            if (plugin.getConfig().getBoolean("http.tls", false)) {
-                plugin.getLogger().warning("http.tls 开着，但没找到可用的 p12，已退回普通 HTTP");
-            }
+            plugin.getLogger().warning("!!! 正在以明文 HTTP 运行（security.allow-plaintext=true），密码与聊天内容不加密 !!!");
             server = HttpServer.create(new InetSocketAddress(host, port), 64);
         }
         server.createContext("/", this);
@@ -104,10 +276,159 @@ public final class ApiServer implements HttpHandler {
         });
         server.setExecutor(pool);
         server.start();
-        String scheme = tls ? "https" : "http";
-        plugin.getLogger().info("接口已启动：" + scheme + "://" + host + ":" + port + "/api/health"
-                + (tls ? "（插件自带 TLS，证书来自 " + keystoreFile().getName() + "）"
-                       : "（明文直连，手机里填 http://服务器IP:49282 就能用）"));
+        if (tls) {
+            plugin.getLogger().info("接口已启动：https://" + host + ":" + port + "/api/health");
+            plugin.getLogger().info("证书：" + keystoreFile().getName() + "，SHA-256 指纹 " + fingerprint());
+            plugin.getLogger().info("手机首次连接前请安装同目录 server.crt（见 README 的 HTTPS 一节）");
+        } else {
+            plugin.getLogger().info("接口已启动：http://" + host + ":" + port + "/api/health（明文，已显式开启）");
+        }
+        warnAuthMeStorage();
+    }
+
+    /** 只用 AEAD / 前向保密套件，TLS 1.2+ */
+    private static final String[] STRONG_CIPHERS = new String[]{
+            "TLS_AES_256_GCM_SHA384", "TLS_AES_128_GCM_SHA256", "TLS_CHACHA20_POLY1305_SHA256",
+            "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384", "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+            "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384", "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"
+    };
+
+    /** 没有证书就自己签一张（PKCS12，10 年），并把公钥导成 server.crt 供手机安装 */
+    private void ensureKeystore() {
+        File f = keystoreFile();
+        if (f.isFile()) {
+            return;
+        }
+        try {
+            String pass = plugin.getConfig().getString("http.keystore-password", "");
+            if (pass == null || pass.trim().isEmpty()) {
+                pass = Long.toHexString(new java.security.SecureRandom().nextLong()) + "Aa1";
+                plugin.getConfig().set("http.keystore-password", pass);
+                plugin.saveConfig();
+                plugin.getLogger().info("已生成 http.keystore-password（写进 config.yml，备份时注意）");
+            }
+            String dn = plugin.getConfig().getString("http.cert-dn", "CN=LinuxAPP");
+            String san = plugin.getConfig().getString("http.cert-san", "");
+            java.util.List<String> cmd = new java.util.ArrayList<String>();
+            cmd.add(keytool());
+            cmd.add("-genkeypair");
+            cmd.add("-alias");
+            cmd.add("linuxapp");
+            cmd.add("-keyalg");
+            cmd.add("RSA");
+            cmd.add("-keysize");
+            cmd.add("2048");
+            cmd.add("-validity");
+            cmd.add("3650");
+            cmd.add("-storetype");
+            cmd.add("PKCS12");
+            cmd.add("-keystore");
+            cmd.add(f.getAbsolutePath());
+            cmd.add("-storepass");
+            cmd.add(pass);
+            cmd.add("-keypass");
+            cmd.add(pass);
+            cmd.add("-dname");
+            cmd.add(dn);
+            if (san != null && !san.trim().isEmpty()) {
+                cmd.add("-ext");
+                cmd.add("SAN=" + san.trim());
+            }
+            runTool(cmd);
+            if (!f.isFile()) {
+                plugin.getLogger().warning("自动生成证书失败：keytool 没产出文件");
+                return;
+            }
+            java.util.List<String> exp = new java.util.ArrayList<String>();
+            exp.add(keytool());
+            exp.add("-exportcert");
+            exp.add("-alias");
+            exp.add("linuxapp");
+            exp.add("-keystore");
+            exp.add(f.getAbsolutePath());
+            exp.add("-storepass");
+            exp.add(pass);
+            exp.add("-rfc");
+            exp.add("-file");
+            exp.add(new File(plugin.getDataFolder(), "server.crt").getAbsolutePath());
+            runTool(exp);
+            plugin.getLogger().info("已自动生成自签证书：" + f.getName() + "（手机要装同目录 server.crt 并信任）");
+        } catch (Throwable t) {
+            plugin.getLogger().warning("自动生成证书出错：" + t);
+        }
+    }
+
+    private String keytool() {
+        String home = System.getProperty("java.home", "");
+        boolean win = System.getProperty("os.name", "").toLowerCase().contains("win");
+        File k = new File(new File(home, "bin"), win ? "keytool.exe" : "keytool");
+        return k.isFile() ? k.getAbsolutePath() : "keytool";
+    }
+
+    private void runTool(java.util.List<String> cmd) throws Exception {
+        ProcessBuilder pb = new ProcessBuilder(cmd);
+        pb.redirectErrorStream(true);
+        Process p = pb.start();
+        java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream(), "UTF-8"));
+        String line;
+        while ((line = r.readLine()) != null) {
+            if (line.trim().isEmpty()) {
+                continue;
+            }
+            plugin.getLogger().info("[keytool] " + line.trim());
+        }
+        p.waitFor();
+    }
+
+    /** 证书 SHA-256 指纹（让用户核对用） */
+    private String fingerprint() {
+        try {
+            java.security.KeyStore ks = java.security.KeyStore.getInstance("PKCS12");
+            String pass = plugin.getConfig().getString("http.keystore-password", "");
+            try (FileInputStream in = new FileInputStream(keystoreFile())) {
+                ks.load(in, pass.toCharArray());
+            }
+            java.security.cert.Certificate c = ks.getCertificate("linuxapp");
+            if (c == null) {
+                return "(未找到)";
+            }
+            byte[] d = java.security.MessageDigest.getInstance("SHA-256").digest(c.getEncoded());
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < d.length; i++) {
+                if (i > 0) {
+                    sb.append(':');
+                }
+                sb.append(String.format("%02X", d[i]));
+            }
+            return sb.toString();
+        } catch (Throwable t) {
+            return "(读不到：" + t.getMessage() + ")";
+        }
+    }
+
+    /** AuthMe 的库文件只看权限、不读内容；权限过宽时给 chmod 建议 */
+    private void warnAuthMeStorage() {
+        if (!plugin.getConfig().getBoolean("security.protect-authme", true)) {
+            return;
+        }
+        try {
+            File dir = new File(plugin.getDataFolder().getParentFile(), "AuthMe");
+            File db = new File(dir, "authme.db");
+            if (!db.isFile()) {
+                return;
+            }
+            java.util.Set<java.nio.file.attribute.PosixFilePermission> perm =
+                    java.nio.file.Files.getPosixFilePermissions(db.toPath());
+            boolean loose = perm.contains(java.nio.file.attribute.PosixFilePermission.GROUP_READ)
+                    || perm.contains(java.nio.file.attribute.PosixFilePermission.OTHERS_READ)
+                    || perm.contains(java.nio.file.attribute.PosixFilePermission.GROUP_WRITE)
+                    || perm.contains(java.nio.file.attribute.PosixFilePermission.OTHERS_WRITE);
+            if (loose) {
+                plugin.getLogger().warning("AuthMe 数据库权限过宽：" + db.getPath()
+                        + " —— 建议 chmod 600，并把 plugins/AuthMe 目录 chmod 700");
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     /** p12 证书文件：plugins/NalxerApp/<http.keystore> */
@@ -169,6 +490,15 @@ public final class ApiServer implements HttpHandler {
             h.add("Access-Control-Allow-Headers", "Authorization,Content-Type");
             h.add("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
             h.add("Content-Type", "application/json; charset=utf-8");
+            h.add("Cache-Control", "no-store");
+            h.add("Pragma", "no-cache");
+            h.add("X-Content-Type-Options", "nosniff");
+            h.add("X-Frame-Options", "DENY");
+            h.add("Referrer-Policy", "no-referrer");
+            h.add("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
+            if (ex instanceof com.sun.net.httpserver.HttpsExchange) {
+                h.add("Strict-Transport-Security", "max-age=31536000");
+            }
 
             if ("OPTIONS".equalsIgnoreCase(ex.getRequestMethod())) {
                 ex.sendResponseHeaders(204, -1);
@@ -179,6 +509,23 @@ public final class ApiServer implements HttpHandler {
             String path = ex.getRequestURI().getPath();
             Map<String, String> query = parseQuery(ex.getRequestURI().getRawQuery());
             String method = ex.getRequestMethod().toUpperCase();
+
+            String sid = ex.getRequestHeaders().getFirst("X-Session");
+            if (sid != null && "1".equals(ex.getRequestHeaders().getFirst("X-Enc"))) {
+                EncSession es = ENC_SESSIONS.get(sid);
+                if (es != null && es.expires > System.currentTimeMillis()) {
+                    es.expires = System.currentTimeMillis() + 30L * 60L * 1000L;
+                    ex.setAttribute("enc", es);
+                }
+            }
+
+            boolean requireEnc = plugin.getConfig().getBoolean("security.require-encryption", true);
+            if (requireEnc && encOf(ex) == null
+                    && !"/api/health".equals(path) && !"/api/session".equals(path)) {
+                send(ex, 426, obj(false, "这个接口只接受加密请求（请升级到支持加密通道的 App）"));
+                return;
+            }
+
             String body = readBody(ex);
 
             if (!allowed(ip, path.startsWith("/api/login"), path)) {
@@ -188,6 +535,10 @@ public final class ApiServer implements HttpHandler {
 
             if ("/api/health".equals(path)) {
                 health(ex);
+                return;
+            }
+            if ("/api/session".equals(path)) {
+                session(ex, method, body);
                 return;
             }
             if ("/api/login".equals(path)) {
@@ -2025,6 +2376,21 @@ public final class ApiServer implements HttpHandler {
     }
 
     private static String readBody(HttpExchange ex) throws Exception {
+        String raw = readBodyPlain(ex);
+        EncSession es = ENC_SESSIONS.get(String.valueOf(ex.getRequestHeaders().getFirst("X-Session")));
+        if (es == null || raw == null || raw.isEmpty()
+                || !"1".equals(ex.getRequestHeaders().getFirst("X-Enc"))) {
+            return raw;
+        }
+        try {
+            byte[] plain = decGcm(es.key, unb64(raw.trim()));
+            return new String(plain, "UTF-8");
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private static String readBodyPlain(HttpExchange ex) throws Exception {
         InputStream in = ex.getRequestBody();
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         byte[] buf = new byte[2048];
@@ -2041,6 +2407,21 @@ public final class ApiServer implements HttpHandler {
     }
 
     private static void send(HttpExchange ex, int status, String json) {
+        EncSession es = ENC_SESSIONS.get(String.valueOf(ex.getRequestHeaders().getFirst("X-Session")));
+        if (es != null && es.expires > System.currentTimeMillis()
+                && "1".equals(ex.getRequestHeaders().getFirst("X-Enc"))) {
+            try {
+                byte[] ct = encGcm(es.key, json.getBytes("UTF-8"));
+                byte[] out = b64(ct).getBytes("UTF-8");
+                ex.getResponseHeaders().set("X-Enc", "1");
+                ex.sendResponseHeaders(status, out.length);
+                java.io.OutputStream os = ex.getResponseBody();
+                os.write(out);
+                os.close();
+                return;
+            } catch (Exception ignored) {
+            }
+        }
         try {
             byte[] raw = json.getBytes(StandardCharsets.UTF_8);
             ex.sendResponseHeaders(status, raw.length);
