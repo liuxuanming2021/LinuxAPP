@@ -72,6 +72,7 @@ public final class ApiServer implements HttpHandler {
 
     private final NalxerApp plugin;
     private HttpServer server;
+    private HttpServer secureServer;
     private ExecutorService pool;
 
     /** IP → 窗口计数 */
@@ -209,11 +210,14 @@ public final class ApiServer implements HttpHandler {
         int threads = Math.max(2, plugin.getConfig().getInt("http.threads", 8));
 
         boolean wantTls = plugin.getConfig().getBoolean("http.tls", true);
-        if (wantTls) {
+        boolean needKeys = wantTls || plugin.getConfig().getBoolean("security.require-encryption", true);
+        if (needKeys) {
+            // 即使只开明文 HTTP，也要有 RSA 密钥对才能做应用层加密（/api/session 用它换 AES 密钥）
             ensureKeystore();
         }
         boolean tls = wantTls && tlsReady();
         boolean allowPlain = plugin.getConfig().getBoolean("security.allow-plaintext", false);
+        int tlsPort = plugin.getConfig().getInt("http.tls-port", port + 1);
 
         if (!tls && !allowPlain) {
             plugin.getLogger().severe("========================================================");
@@ -226,13 +230,13 @@ public final class ApiServer implements HttpHandler {
         }
 
         if (tls) {
-            HttpsServer https = HttpsServer.create(new InetSocketAddress(host, port), 64);
+          try {
+            HttpsServer https = HttpsServer.create(new InetSocketAddress(host, tlsPort), 64);
             final SSLContext sslContext = buildSslContext();
             https.setHttpsConfigurator(new HttpsConfigurator(sslContext) {
                 @Override
                 public void configure(com.sun.net.httpserver.HttpsParameters params) {
                     SSLParameters sp = sslContext.getDefaultSSLParameters();
-                    // 只留 TLS 1.2 / 1.3（按运行时实际支持筛，JDK8 没有 1.3 也不会炸）
                     SSLParameters sup = sslContext.getSupportedSSLParameters();
                     java.util.List<String> protos = new java.util.ArrayList<String>();
                     for (String pr : sup.getProtocols()) {
@@ -258,12 +262,22 @@ public final class ApiServer implements HttpHandler {
                     params.setSSLParameters(sp);
                 }
             });
-            server = https;
-        } else {
-            plugin.getLogger().warning("!!! 正在以明文 HTTP 运行（security.allow-plaintext=true），密码与聊天内容不加密 !!!");
-            server = HttpServer.create(new InetSocketAddress(host, port), 64);
+            https.createContext("/", this);
+            secureServer = https;
+          } catch (Exception e) {
+            plugin.getLogger().warning("HTTPS 端口 " + tlsPort + " 绑定失败：" + e.getMessage() + "（继续尝试 HTTP）");
+          }
         }
-        server.createContext("/", this);
+        if (allowPlain) {
+          try {
+            HttpServer plain = HttpServer.create(new InetSocketAddress(host, port), 64);
+            plain.createContext("/", this);
+            server = plain;
+          } catch (Exception e) {
+            plugin.getLogger().warning("HTTP 端口 " + port + " 绑定失败：" + e.getMessage());
+          }
+        }
+
         pool = Executors.newFixedThreadPool(threads, new ThreadFactory() {
             private final AtomicInteger n = new AtomicInteger();
 
@@ -274,14 +288,22 @@ public final class ApiServer implements HttpHandler {
                 return t;
             }
         });
-        server.setExecutor(pool);
-        server.start();
-        if (tls) {
-            plugin.getLogger().info("接口已启动：https://" + host + ":" + port + "/api/health");
+        if (secureServer == null && server == null) {
+            plugin.getLogger().severe("HTTP 与 HTTPS 端口都没能绑定，接口未启动（检查端口占用）。");
+            return;
+        }
+        if (secureServer != null) {
+            secureServer.setExecutor(pool);
+            secureServer.start();
+            plugin.getLogger().info("接口已启动（HTTPS）：https://" + host + ":" + tlsPort + "/api/health");
             plugin.getLogger().info("证书：" + keystoreFile().getName() + "，SHA-256 指纹 " + fingerprint());
-            plugin.getLogger().info("手机首次连接前请安装同目录 server.crt（见 README 的 HTTPS 一节）");
-        } else {
-            plugin.getLogger().info("接口已启动：http://" + host + ":" + port + "/api/health（明文，已显式开启）");
+        }
+        if (server != null) {
+            server.setExecutor(pool);
+            server.start();
+            boolean enc = plugin.getConfig().getBoolean("security.require-encryption", true);
+            plugin.getLogger().info("接口已启动（HTTP）：http://" + host + ":" + port + "/api/health"
+                    + (enc ? "（明文传输，但接口强制应用层加密）" : "（明文传输，未强制加密）"));
         }
         warnAuthMeStorage();
     }
@@ -296,65 +318,178 @@ public final class ApiServer implements HttpHandler {
     /** 没有证书就自己签一张（PKCS12，10 年），并把公钥导成 server.crt 供手机安装 */
     private void ensureKeystore() {
         File f = keystoreFile();
-        if (f.isFile()) {
+        String dn = plugin.getConfig().getString("http.cert-dn", "CN=LinuxAPP");
+        String san = plugin.getConfig().getString("http.cert-san", "");
+        if (san == null) san = "";
+        if (san.trim().isEmpty()) {
+            san = autoSan();
+            plugin.getLogger().info("http.cert-san 没填，自动把本机地址写进证书：" + san);
+        }
+        String want = dn + "|" + san;
+        File mark = new File(plugin.getDataFolder(), "cert-info.txt");
+        String have = "";
+        if (mark.isFile()) {
+            try {
+                byte[] buf = java.nio.file.Files.readAllBytes(mark.toPath());
+                have = new String(buf, "UTF-8").trim();
+            } catch (Throwable ignored) {
+            }
+        }
+        boolean exists = f.isFile();
+        boolean stale = exists && !want.equals(have);
+        if (exists && !stale) {
+            File crt0 = new File(plugin.getDataFolder(), "server.crt");
+            if (!crt0.isFile()) {
+                String p0 = plugin.getConfig().getString("http.keystore-password", "");
+                SelfSigned.exportPem(f, p0 == null ? new char[0] : p0.toCharArray(), crt0);
+                plugin.getLogger().info("证书还在，但 server.crt 丢了，已重新导出：" + crt0.getName());
+            }
             return;
         }
-        try {
-            String pass = plugin.getConfig().getString("http.keystore-password", "");
-            if (pass == null || pass.trim().isEmpty()) {
-                pass = Long.toHexString(new java.security.SecureRandom().nextLong()) + "Aa1";
-                plugin.getConfig().set("http.keystore-password", pass);
-                plugin.saveConfig();
-                plugin.getLogger().info("已生成 http.keystore-password（写进 config.yml，备份时注意）");
-            }
-            String dn = plugin.getConfig().getString("http.cert-dn", "CN=LinuxAPP");
-            String san = plugin.getConfig().getString("http.cert-san", "");
-            java.util.List<String> cmd = new java.util.ArrayList<String>();
-            cmd.add(keytool());
-            cmd.add("-genkeypair");
-            cmd.add("-alias");
-            cmd.add("linuxapp");
-            cmd.add("-keyalg");
-            cmd.add("RSA");
-            cmd.add("-keysize");
-            cmd.add("2048");
-            cmd.add("-validity");
-            cmd.add("3650");
-            cmd.add("-storetype");
-            cmd.add("PKCS12");
-            cmd.add("-keystore");
-            cmd.add(f.getAbsolutePath());
-            cmd.add("-storepass");
-            cmd.add(pass);
-            cmd.add("-keypass");
-            cmd.add(pass);
-            cmd.add("-dname");
-            cmd.add(dn);
-            if (san != null && !san.trim().isEmpty()) {
-                cmd.add("-ext");
-                cmd.add("SAN=" + san.trim());
-            }
-            runTool(cmd);
-            if (!f.isFile()) {
-                plugin.getLogger().warning("自动生成证书失败：keytool 没产出文件");
+        if (stale) {
+            plugin.getLogger().warning("证书配置变了（cert-dn / cert-san），重新生成证书：" + want);
+            if (!f.delete()) {
+                plugin.getLogger().warning("旧证书删不掉，先继续用旧的：" + f.getAbsolutePath());
                 return;
             }
-            java.util.List<String> exp = new java.util.ArrayList<String>();
-            exp.add(keytool());
-            exp.add("-exportcert");
-            exp.add("-alias");
-            exp.add("linuxapp");
-            exp.add("-keystore");
-            exp.add(f.getAbsolutePath());
-            exp.add("-storepass");
-            exp.add(pass);
-            exp.add("-rfc");
-            exp.add("-file");
-            exp.add(new File(plugin.getDataFolder(), "server.crt").getAbsolutePath());
-            runTool(exp);
-            plugin.getLogger().info("已自动生成自签证书：" + f.getName() + "（手机要装同目录 server.crt 并信任）");
+        }
+        String pass = plugin.getConfig().getString("http.keystore-password", "");
+        if (pass == null || pass.trim().isEmpty()) {
+            pass = Long.toHexString(new java.security.SecureRandom().nextLong()) + "Aa1";
+            plugin.getConfig().set("http.keystore-password", pass);
+            plugin.saveConfig();
+            plugin.getLogger().info("已生成 http.keystore-password（写进 config.yml，备份时注意）");
+        }
+        boolean ok = false;
+        try {
+            buildWithKeytool(f, pass, dn, san);
+            ok = f.isFile();
         } catch (Throwable t) {
-            plugin.getLogger().warning("自动生成证书出错：" + t);
+            plugin.getLogger().warning("keytool 生成证书失败（" + t + "），改用内置生成器");
+        }
+        if (!ok) {
+            try {
+                java.security.cert.X509Certificate cert =
+                        SelfSigned.generate(f, pass.toCharArray(), dn, san);
+                ok = true;
+                plugin.getLogger().info("已用内置生成器签发自签证书（SAN：" + (san.isEmpty() ? "无" : san) + "）");
+            } catch (Throwable t) {
+                plugin.getLogger().severe("内置生成器也失败了：" + t);
+                t.printStackTrace();
+            }
+        }
+        if (!ok || !f.isFile()) {
+            plugin.getLogger().severe("自动生成证书失败：没有产出 " + f.getAbsolutePath());
+            return;
+        }
+        File crt = new File(plugin.getDataFolder(), "server.crt");
+        if (!SelfSigned.exportPem(f, pass.toCharArray(), crt)) {
+            plugin.getLogger().warning("导出 server.crt 失败，可以用 keytool -exportcert 手动导");
+        }
+        try {
+            java.nio.file.Files.write(mark.toPath(), want.getBytes("UTF-8"));
+        } catch (Throwable ignored) {
+        }
+        plugin.getLogger().info("已自动生成自签证书：" + f.getName() + "（手机要装同目录 server.crt 并信任）");
+    }
+
+    /** 给 /linuxapp cert regen 用：删掉旧证书与标记，重新生成一套 */
+    public void regenerateCertificate() {
+        File f = keystoreFile();
+        File mark = new File(plugin.getDataFolder(), "cert-info.txt");
+        if (f.isFile() && !f.delete()) {
+            plugin.getLogger().warning("旧证书删不掉：" + f.getAbsolutePath());
+        }
+        if (mark.isFile()) {
+            mark.delete();
+        }
+        ensureKeystore();
+    }
+
+    /** 证书的简要信息，给 /linuxapp cert 用 */
+    public String certificateInfo() {
+        File f = keystoreFile();
+        File crt = new File(plugin.getDataFolder(), "server.crt");
+        String pass = plugin.getConfig().getString("http.keystore-password", "");
+        String san = plugin.getConfig().getString("http.cert-san", "");
+        String nl = String.valueOf((char) 10);
+        StringBuilder sb = new StringBuilder();
+        sb.append("证书文件: ").append(f.getAbsolutePath()).append(f.isFile() ? "（存在）" : "（不存在）");
+        sb.append(nl).append("公钥文件: ").append(crt.getAbsolutePath()).append(crt.isFile() ? "（存在）" : "（不存在）");
+        sb.append(nl).append("配置 SAN: ").append(san == null || san.isEmpty() ? "（空，手机按 IP 连会报名称不匹配）" : san);
+        try {
+            java.security.KeyStore ks = java.security.KeyStore.getInstance("PKCS12");
+            try (FileInputStream in = new FileInputStream(f)) {
+                ks.load(in, pass.toCharArray());
+            }
+            java.security.cert.Certificate c = ks.getCertificate("linuxapp");
+            if (c instanceof java.security.cert.X509Certificate) {
+                java.security.cert.X509Certificate x = (java.security.cert.X509Certificate) c;
+                sb.append(nl).append("有效期至: ").append(x.getNotAfter());
+                sb.append(nl).append("SAN: ").append(x.getSubjectAlternativeNames());
+            }
+        } catch (Throwable t) {
+            sb.append(nl).append("读取证书失败: ").append(t);
+        }
+        return sb.toString();
+    }
+
+    /** 没填 cert-san 时，把本机所有 IPv4 地址 + localhost 写进证书，手机用 IP 直连才不会报名称不匹配 */
+    private String autoSan() {
+        StringBuilder sb = new StringBuilder("IP:127.0.0.1,DNS:localhost");
+        try {
+            java.util.Enumeration<java.net.NetworkInterface> en =
+                    java.net.NetworkInterface.getNetworkInterfaces();
+            while (en != null && en.hasMoreElements()) {
+                java.net.NetworkInterface ni = en.nextElement();
+                if (ni == null || !ni.isUp() || ni.isLoopback() || ni.isVirtual()) {
+                    continue;
+                }
+                java.util.Enumeration<java.net.InetAddress> addrs = ni.getInetAddresses();
+                while (addrs.hasMoreElements()) {
+                    java.net.InetAddress a = addrs.nextElement();
+                    if (a instanceof java.net.Inet4Address) {
+                        String ip = a.getHostAddress();
+                        if (ip != null && !sb.toString().contains("IP:" + ip)) {
+                            sb.append(",IP:").append(ip);
+                        }
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return sb.toString();
+    }
+
+    private void buildWithKeytool(File f, String pass, String dn, String san) throws Exception {
+        java.util.List<String> cmd = new java.util.ArrayList<String>();
+        cmd.add(keytool());
+        cmd.add("-genkeypair");
+        cmd.add("-alias");
+        cmd.add("linuxapp");
+        cmd.add("-keyalg");
+        cmd.add("RSA");
+        cmd.add("-keysize");
+        cmd.add("2048");
+        cmd.add("-validity");
+        cmd.add("3650");
+        cmd.add("-storetype");
+        cmd.add("PKCS12");
+        cmd.add("-keystore");
+        cmd.add(f.getAbsolutePath());
+        cmd.add("-storepass");
+        cmd.add(pass);
+        cmd.add("-keypass");
+        cmd.add(pass);
+        cmd.add("-dname");
+        cmd.add(dn);
+        if (san != null && !san.trim().isEmpty()) {
+            cmd.add("-ext");
+            cmd.add("SAN=" + san.trim());
+        }
+        int code = runTool(cmd);
+        if (code != 0 || !f.isFile()) {
+            throw new IllegalStateException("keytool 退出码 " + code);
         }
     }
 
@@ -365,7 +500,7 @@ public final class ApiServer implements HttpHandler {
         return k.isFile() ? k.getAbsolutePath() : "keytool";
     }
 
-    private void runTool(java.util.List<String> cmd) throws Exception {
+    private int runTool(java.util.List<String> cmd) throws Exception {
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.redirectErrorStream(true);
         Process p = pb.start();
@@ -377,7 +512,7 @@ public final class ApiServer implements HttpHandler {
             }
             plugin.getLogger().info("[keytool] " + line.trim());
         }
-        p.waitFor();
+        return p.waitFor();
     }
 
     /** 证书 SHA-256 指纹（让用户核对用） */
@@ -466,6 +601,10 @@ public final class ApiServer implements HttpHandler {
     }
 
     public void stop() {
+        if (secureServer != null) {
+            secureServer.stop(0);
+            secureServer = null;
+        }
         if (server != null) {
             server.stop(0);
             server = null;
@@ -477,7 +616,7 @@ public final class ApiServer implements HttpHandler {
     }
 
     public boolean isRunning() {
-        return server != null;
+        return server != null || secureServer != null;
     }
 
     // ── 路由 ────────────────────────────────────────────────

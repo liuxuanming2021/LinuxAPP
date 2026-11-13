@@ -81,9 +81,7 @@
   function normServer(v) {
     var s = String(v == null ? '' : v).trim();
     if (!s) return DEFAULT_SERVER;
-    if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
-    // 服务器默认只开 HTTPS（自签证书，App 内自动信任），填 http:// 也自动升级
-    s = s.replace(/^http:\/\//i, 'https://');
+    if (!/^https?:\/\//i.test(s)) s = 'http://' + s;
     return s.replace(/\/+$/, '');
   }
 
@@ -328,7 +326,9 @@
   }
 
   function cryptoUsable() {
-    return typeof crypto !== 'undefined' && crypto.subtle && location.protocol === 'https:';
+    // 不再要求 https：App 的页面来自 localhost / capacitor://，属于安全上下文，
+    // 即使接口是 http 也能用 WebCrypto 做应用层加密（服务器端 require-encryption 会强制）
+    return typeof crypto !== 'undefined' && !!crypto.subtle;
   }
 
   function cryptoInit() {
