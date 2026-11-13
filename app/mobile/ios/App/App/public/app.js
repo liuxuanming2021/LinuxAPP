@@ -149,6 +149,7 @@
     state.myTeams = [];
     state.reports = [];
     persist();
+    cryptoInit();
     renderServersUi();
     if (!state.token) {
       showLogin();
@@ -307,46 +308,193 @@
 
   // ── 请求 ─────────────────────────────────────────────
 
+
+  // ── 端到端附加加密（TLS 之上再套一层 AES-GCM）────────────
+  var CRYPTO_SESSION = { ready: false, id: null, key: null };
+
+  function b64FromBytes(bytes) {
+    var bin = '';
+    for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  }
+
+  function bytesFromB64(b64) {
+    var bin = atob(b64);
+    var out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  function cryptoUsable() {
+    // 不再要求 https：App 的页面来自 localhost / capacitor://，属于安全上下文，
+    // 即使接口是 http 也能用 WebCrypto 做应用层加密（服务器端 require-encryption 会强制）
+    return typeof crypto !== 'undefined' && !!crypto.subtle;
+  }
+
+  var CRYPTO_TRIED = false;
+  var CRYPTO_PENDING = null;
+  var CRYPTO_WARNED = false;
+  var SERVER_INFO = { version: '', enc: null };
+  var cryptoLastError = '';
+
+  function cryptoInit() {
+    CRYPTO_SESSION.ready = false;
+    CRYPTO_TRIED = true;
+    cryptoLastError = '';
+    if (!cryptoUsable()) { cryptoLastError = '这个 WebView 不支持 WebCrypto（crypto.subtle 不可用）'; return Promise.resolve(false); }
+    var base = state.server;
+    // 每次连接现生成一对 RSA 密钥（只留在内存里），断线重连就是全新密钥。
+    var pair = crypto.subtle.generateKey(
+      { name: 'RSA-OAEP', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+      false, ['encrypt', 'decrypt']);
+    return pair.then(function (kp) {
+      return crypto.subtle.exportKey('spki', kp.publicKey).then(function (der) {
+        var id = '';
+        var rnd = new Uint8Array(8);
+        crypto.getRandomValues(rnd);
+        for (var i = 0; i < rnd.length; i++) id += ('0' + rnd[i].toString(16)).slice(-2);
+        return fetch(base + '/api/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: id, pub: b64FromBytes(new Uint8Array(der)) })
+        }).then(function (r2) { return r2.text(); }).then(function (t2) {
+          var d = null;
+          try { d = JSON.parse(t2); } catch (e) { d = null; }
+          if (!d || !d.ok || !d.key) { cryptoLastError = '服务端没有返回会话密钥'; return false; }
+          return crypto.subtle.decrypt({ name: 'RSA-OAEP' }, kp.privateKey, bytesFromB64(d.key).buffer)
+            .then(function (raw) {
+              return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'])
+                .then(function (key) {
+                  CRYPTO_SESSION.id = id;
+                  CRYPTO_SESSION.key = key;
+                  CRYPTO_SESSION.ready = true;
+                  return true;
+                });
+            });
+        });
+      });
+    })
+      .catch(function (e) {
+        cryptoLastError = '握手失败：' + ((e && e.message) ? e.message : e);
+        return false;
+      });
+  }
+
+  function cryptoEncrypt(text) {
+    var iv = new Uint8Array(12);
+    crypto.getRandomValues(iv);
+    return crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, CRYPTO_SESSION.key, new TextEncoder().encode(text))
+      .then(function (ct) {
+        var all = new Uint8Array(iv.length + ct.byteLength);
+        all.set(iv, 0);
+        all.set(new Uint8Array(ct), iv.length);
+        return b64FromBytes(all);
+      });
+  }
+
+  function cryptoDecrypt(b64) {
+    var raw = bytesFromB64(b64);
+    var iv = raw.slice(0, 12);
+    var ct = raw.slice(12);
+    return crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, CRYPTO_SESSION.key, ct)
+      .then(function (pt) { return new TextDecoder().decode(pt); });
+  }
+
+  function ensureCrypto() {
+    if (CRYPTO_SESSION.ready) return Promise.resolve(true);
+    if (CRYPTO_PENDING) return CRYPTO_PENDING;
+    CRYPTO_PENDING = cryptoInit().then(function (ok) {
+      CRYPTO_PENDING = null;
+      renderCryptoStatus();
+      return ok;
+    }, function () {
+      CRYPTO_PENDING = null;
+      return false;
+    });
+    return CRYPTO_PENDING;
+  }
+
   function api(path, opts) {
+    // 登录前不加密（也不握手）：只有拿到 token 之后才走加密通道
+    if (!state.token) return apiOnce(path, opts);
+    return ensureCrypto().then(function () {
+      return apiOnce(path, opts);
+    }).catch(function (err) {
+      if (err && err.status === 426 && !CRYPTO_WARNED) {
+        CRYPTO_WARNED = true;
+        try {
+          toast('这台设备没能建立加密通道，已改用明文连接' + (cryptoLastError ? '（' + cryptoLastError + '）' : ''));
+        } catch (e0) {}
+      }
+      throw err;
+    });
+  }
+
+  function apiOnce(path, opts) {
     opts = opts || {};
     var url = state.server + path;
     var headers = { 'Accept': 'application/json' };
     if (opts.body != null) headers['Content-Type'] = 'application/json';
     if (state.token) headers['Authorization'] = 'Bearer ' + state.token;
+    var useEnc = CRYPTO_SESSION.ready && !!CRYPTO_SESSION.id;
+    if (!useEnc && CRYPTO_TRIED) headers['X-No-Enc'] = '1';
+    if (useEnc) {
+      headers['X-Session'] = CRYPTO_SESSION.id;
+      headers['X-Enc'] = '1';
+    }
 
     var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
     var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 10000) : 0;
 
-    return fetch(url, {
-      method: opts.method || (opts.body != null ? 'POST' : 'GET'),
-      headers: headers,
-      body: opts.body != null ? JSON.stringify(opts.body) : undefined,
-      signal: ctrl ? ctrl.signal : undefined
-    }).then(function (r) {
-      if (timer) clearTimeout(timer);
-      return r.text().then(function (txt) {
-        var data = null;
-        try { data = txt ? JSON.parse(txt) : {}; } catch (e) { data = { ok: false, message: '服务器返回的不是 JSON' }; }
-        if (r.status === 401) {
-          if (data && data.message) { state.kicked = data.message; }
-          else if (data && data.code === 'session_kicked') { state.kicked = '这个账号已在另一台设备登录'; }
-          if (!opts.quiet) { logout(true); }
-          var e401 = new Error((data && data.message) || '登录已过期，请重新登录');
-          e401.status = 401;
-          throw e401;
-        }
-        return { status: r.status, data: data };
+    var bodyPromise;
+    if (opts.body != null) {
+      var raw = JSON.stringify(opts.body);
+      bodyPromise = useEnc ? cryptoEncrypt(raw) : Promise.resolve(raw);
+    } else {
+      bodyPromise = Promise.resolve(null);
+    }
+
+    return bodyPromise.then(function (payload) {
+      return fetch(url, {
+        method: opts.method || (opts.body != null ? 'POST' : 'GET'),
+        headers: headers,
+        body: payload == null ? undefined : payload,
+        signal: ctrl ? ctrl.signal : undefined
+      }).then(function (r) {
+        if (timer) clearTimeout(timer);
+        var encResp = r.headers.get('X-Enc') === '1';
+        return r.text().then(function (txt) {
+          var after = encResp && txt ? cryptoDecrypt(txt) : Promise.resolve(txt);
+          return after.then(function (plain) {
+            var data = null;
+            try { data = plain ? JSON.parse(plain) : {}; } catch (e) { data = { ok: false, message: '服务器返回的不是 JSON' }; }
+            if (r.status === 426) {
+              var why = cryptoLastError ? ('（本机握手失败：' + cryptoLastError + '）') : '';
+              var e426 = new Error(((data && data.message) || '这个接口只接受加密请求') + why);
+              e426.status = 426;
+              throw e426;
+            }
+            if (r.status === 401) {
+              if (data && data.message) { state.kicked = data.message; }
+              else if (data && data.code === 'session_kicked') { state.kicked = '这个账号已在另一台设备登录'; }
+              if (!opts.quiet) { logout(true); }
+              var e401 = new Error((data && data.message) || '登录已过期，请重新登录');
+              e401.status = 401;
+              throw e401;
+            }
+            return { status: r.status, data: data };
+          });
+        });
       });
     }).catch(function (err) {
       if (timer) clearTimeout(timer);
       if (err && err.name === 'AbortError') {
         throw new Error('连接超时：' + url + '（10 秒没响应，多半是端口没放行或被防火墙挡了）');
       }
-      // 服务器已经说清楚原因了（密码不对 / 要验证 / 没权限），原样抛给界面
       if (err && (err.status || err.needVerify)) throw err;
-      if (err && err.message && err.message.indexOf('登录已过期') >= 0) throw err;
-      if (err && err.message && err.message.indexOf('连接超时') >= 0) throw err;
-      throw new Error('连不上 ' + url + ' —— 看这几点：服务器开着吗 / 云服务器安全组放行这个端口了吗 / plugins 里有没有 LinuxAPP');
+      if (err && err.message && (err.message.indexOf('登录已过期') >= 0 || err.message.indexOf('连接超时') >= 0 || err.message.indexOf('加密通道') >= 0)) throw err;
+      if (err && err.message && err.message.indexOf('解密') >= 0) throw err;
+      throw new Error('连不上 ' + url + ' —— 看这几点：服务器开着吗 / 防火墙放行这个端口了吗 / 地址写得对吗（默认 http://IP:49282）');
     });
   }
 
@@ -381,7 +529,15 @@
       .then(function (res) {
         var v = '';
         try { v = JSON.parse(res.body).version || ''; } catch (e) {}
-        box.textContent = '连接成功：HTTP ' + res.code + (v ? '，服务端版本 ' + v : '') + NL + '地址 ' + url;
+        box.textContent = '连接成功：HTTP ' + res.code + (v ? '，服务端版本 ' + v : '') + NL + '地址 ' + url + NL + '正在测试加密通道…';
+        var keep = state.server;
+        state.server = url;
+        CRYPTO_TRIED = false;
+        CRYPTO_SESSION.ready = false;
+        return ensureCrypto().then(function (ok) {
+          state.server = keep;
+          box.textContent += NL + (ok ? '加密通道：已建立（AES-256-GCM）' : ('加密通道：失败 — ' + (cryptoLastError || '未知原因')));
+        });
       })
       .catch(function (e) {
         if (timer) clearTimeout(timer);
@@ -511,6 +667,19 @@
     if (!el) return;
     if (!state.canManage) { el.textContent = '无'; return; }
     el.textContent = state.moderatorOnly ? '有（协管）' : '有';
+  }
+
+  function renderCryptoStatus() {
+    var el = $('set-enc');
+    if (el) {
+      if (CRYPTO_SESSION.ready) el.textContent = '已加密（AES-256-GCM）';
+      else if (CRYPTO_TRIED) el.textContent = '未加密（明文）' + (cryptoLastError ? '·' + cryptoLastError : '');
+      else el.textContent = '检查中…';
+    }
+    var ver = $('set-server-ver');
+    if (ver) {
+      ver.textContent = SERVER_INFO.version ? ('LinuxAPP ' + SERVER_INFO.version) : 'LinuxAPP —';
+    }
   }
 
   function applyRole(role, caps) {
@@ -684,6 +853,8 @@
     else if (page === 'pdetail' && state.detailName) playerDetail(state.detailName, true);
     else if (page === 'more') {
       loadMe();
+      loadServerInfo();
+      renderCryptoStatus();
       if (state.admin) loadStatus();
     }
   }
@@ -975,6 +1146,14 @@
     var v = Number(h);
     if (v < 1) return Math.round(v * 60) + ' 分钟';
     return (Math.round(v * 10) / 10) + ' 小时';
+  }
+
+  function loadServerInfo() {
+    return api('/api/health', { quiet: true }).then(function (r) {
+      var d = (r && r.data) || {};
+      if (d.version) SERVER_INFO.version = d.version;
+      renderCryptoStatus();
+    }).catch(function () {});
   }
 
   function loadMe() {
@@ -2859,6 +3038,7 @@
   function boot() {
     initTheme();
     bind();
+    cryptoInit();
     measureTopbar();
     wrapSegs();
     setTimeout(updateSegArrows, 320);
