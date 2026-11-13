@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 只允许 https；同时允许用户自己安装的 CA（自签证书装进系统后可被信任） -->
+<!-- 允许 http 明文（接口本身强制应用层 AES-GCM 加密），同时允许用户安装的 CA -->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="false">
+    <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
             <certificates src="user" />

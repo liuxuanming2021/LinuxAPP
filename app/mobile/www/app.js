@@ -331,9 +331,14 @@
     return typeof crypto !== 'undefined' && !!crypto.subtle;
   }
 
+  var CRYPTO_TRIED = false;
+  var cryptoLastError = '';
+
   function cryptoInit() {
     CRYPTO_SESSION.ready = false;
-    if (!cryptoUsable()) return Promise.resolve(false);
+    CRYPTO_TRIED = true;
+    cryptoLastError = '';
+    if (!cryptoUsable()) { cryptoLastError = '这个 WebView 不支持 WebCrypto（crypto.subtle 不可用）'; return Promise.resolve(false); }
     var base = state.server;
     return fetch(base + '/api/session', { headers: { 'Accept': 'application/json' } })
       .then(function (r) { return r.text(); })
@@ -399,6 +404,7 @@
     var headers = { 'Accept': 'application/json' };
     if (opts.body != null) headers['Content-Type'] = 'application/json';
     if (state.token) headers['Authorization'] = 'Bearer ' + state.token;
+    if (!CRYPTO_SESSION.ready && !CRYPTO_TRIED && state.server) cryptoInit();
     var useEnc = CRYPTO_SESSION.ready && !!CRYPTO_SESSION.id;
     if (useEnc) {
       headers['X-Session'] = CRYPTO_SESSION.id;
@@ -431,7 +437,8 @@
             var data = null;
             try { data = plain ? JSON.parse(plain) : {}; } catch (e) { data = { ok: false, message: '服务器返回的不是 JSON' }; }
             if (r.status === 426) {
-              var e426 = new Error((data && data.message) || '服务器要求加密通道，请确认地址是 https://');
+              var e426 = new Error((data && data.message) || '这个接口只接受加密请求')
+                  ;
               e426.status = 426;
               throw e426;
             }
