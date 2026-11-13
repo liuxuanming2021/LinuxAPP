@@ -81,7 +81,9 @@
   function normServer(v) {
     var s = String(v == null ? '' : v).trim();
     if (!s) return DEFAULT_SERVER;
-    if (!/^https?:\/\//i.test(s)) s = 'http://' + s;
+    if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
+    // 服务器默认只开 HTTPS（自签证书，App 内自动信任），填 http:// 也自动升级
+    s = s.replace(/^http:\/\//i, 'https://');
     return s.replace(/\/+$/, '');
   }
 
