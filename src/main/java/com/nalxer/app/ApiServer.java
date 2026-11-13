@@ -628,7 +628,11 @@ public final class ApiServer implements HttpHandler {
         try {
             Headers h = ex.getResponseHeaders();
             h.add("Access-Control-Allow-Origin", "*");
-            h.add("Access-Control-Allow-Headers", "Authorization,Content-Type");
+            h.add("Access-Control-Allow-Headers",
+                    "Authorization,Content-Type,X-Session,X-Enc,X-No-Enc,X-Ping,X-Client");
+            h.add("Access-Control-Max-Age", "86400");
+            // 跨域下只有这里列出的响应头 JS 才能读到（X-Enc 决定要不要解密）
+            h.add("Access-Control-Expose-Headers", "X-Enc,X-Session,X-Ping");
             h.add("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
             h.add("Content-Type", "application/json; charset=utf-8");
             h.add("Cache-Control", "no-store");
@@ -650,6 +654,7 @@ public final class ApiServer implements HttpHandler {
             String path = ex.getRequestURI().getPath();
             Map<String, String> query = parseQuery(ex.getRequestURI().getRawQuery());
             String method = ex.getRequestMethod().toUpperCase();
+            boolean loginPath = "/api/login".equals(path) || "/api/auth".equals(path) || "/api/signin".equals(path);
 
             String sid = ex.getRequestHeaders().getFirst("X-Session");
             if (sid != null && "1".equals(ex.getRequestHeaders().getFirst("X-Enc"))) {
@@ -663,7 +668,7 @@ public final class ApiServer implements HttpHandler {
             boolean requireEnc = plugin.getConfig().getBoolean("security.strict-encryption", false); // 默认不拦，老配置里的 require-encryption 不再生效
             if (requireEnc && encOf(ex) == null
                     && !"/api/health".equals(path) && !"/api/session".equals(path)
-                    && !"/api/login".equals(path)) {
+                    && !loginPath) {
                 // 老版本 App / 本机没有 WebCrypto 时，允许它明确声明「我没法加密」，退回明文，避免直接锁死
                 boolean fallback = plugin.getConfig().getBoolean("security.allow-plaintext-fallback", true);
                 boolean clientSaysPlain = "1".equals(ex.getRequestHeaders().getFirst("X-No-Enc"));
@@ -681,7 +686,7 @@ public final class ApiServer implements HttpHandler {
 
             String body = readBody(ex);
 
-            if (!allowed(ip, path.startsWith("/api/login"), path)) {
+            if (!allowed(ip, loginPath, path)) {
                 send(ex, 429, obj(false, "请求太频繁，请稍后再试"));
                 return;
             }
@@ -694,7 +699,11 @@ public final class ApiServer implements HttpHandler {
                 session(ex, method, body);
                 return;
             }
-            if ("/api/login".equals(path)) {
+            if ("true".equals(ex.getRequestHeaders().getFirst("X-Ping"))) {
+                send(ex, 200, obj(true, "pong"));
+                return;
+            }
+            if (loginPath) {
                 if (!"POST".equals(method)) {
                     send(ex, 405, obj(false, "请用 POST"));
                     return;
@@ -850,6 +859,11 @@ public final class ApiServer implements HttpHandler {
         caps.put("identity", Boolean.valueOf(plugin.hooks().hasIdentity()));
         caps.put("xland", Boolean.valueOf(plugin.hooks().hasXland()));
         m.put("capabilities", caps);
+        Map<String, Object> sec = new LinkedHashMap<String, Object>();
+        sec.put("strictEncryption", Boolean.valueOf(plugin.getConfig().getBoolean("security.strict-encryption", false)));
+        sec.put("plaintextFallback", Boolean.valueOf(plugin.getConfig().getBoolean("security.allow-plaintext-fallback", true)));
+        sec.put("https", Boolean.valueOf(secureServer != null));
+        m.put("security", sec);
         // 二次验证 / su 的实际生效情况，排查「为什么没弹验证」时先看这里
         Map<String, Object> verify = new LinkedHashMap<String, Object>();
         verify.put("enabled", Boolean.valueOf(plugin.getConfig().getBoolean("verify.enabled", true)));

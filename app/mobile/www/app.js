@@ -334,6 +334,7 @@
   var CRYPTO_TRIED = false;
   var CRYPTO_PENDING = null;
   var CRYPTO_WARNED = false;
+  var SERVER_INFO = { version: '', enc: null };
   var cryptoLastError = '';
 
   function cryptoInit() {
@@ -408,6 +409,7 @@
     if (CRYPTO_PENDING) return CRYPTO_PENDING;
     CRYPTO_PENDING = cryptoInit().then(function (ok) {
       CRYPTO_PENDING = null;
+      renderCryptoStatus();
       return ok;
     }, function () {
       CRYPTO_PENDING = null;
@@ -671,6 +673,19 @@
     el.textContent = state.moderatorOnly ? '有（协管）' : '有';
   }
 
+  function renderCryptoStatus() {
+    var el = $('set-enc');
+    if (el) {
+      if (CRYPTO_SESSION.ready) el.textContent = '已加密（AES-256-GCM）';
+      else if (CRYPTO_TRIED) el.textContent = '未加密（明文）' + (cryptoLastError ? '·' + cryptoLastError : '');
+      else el.textContent = '检查中…';
+    }
+    var ver = $('set-server-ver');
+    if (ver) {
+      ver.textContent = SERVER_INFO.version ? ('LinuxAPP ' + SERVER_INFO.version) : 'LinuxAPP —';
+    }
+  }
+
   function applyRole(role, caps) {
     state.role = role || 'player';
     if (caps && typeof caps === 'object') state.caps = caps;
@@ -842,6 +857,8 @@
     else if (page === 'pdetail' && state.detailName) playerDetail(state.detailName, true);
     else if (page === 'more') {
       loadMe();
+      loadServerInfo();
+      renderCryptoStatus();
       if (state.admin) loadStatus();
     }
   }
@@ -1133,6 +1150,14 @@
     var v = Number(h);
     if (v < 1) return Math.round(v * 60) + ' 分钟';
     return (Math.round(v * 10) / 10) + ' 小时';
+  }
+
+  function loadServerInfo() {
+    return api('/api/health', { quiet: true }).then(function (r) {
+      var d = (r && r.data) || {};
+      if (d.version) SERVER_INFO.version = d.version;
+      renderCryptoStatus();
+    }).catch(function () {});
   }
 
   function loadMe() {

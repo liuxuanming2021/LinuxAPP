@@ -510,6 +510,12 @@ public final class NalxerApp extends JavaPlugin implements Listener {
                     + ChatColor.DARK_GRAY + " | " + ChatColor.GRAY + "金币: " + flag(hooks.hasEconomy())
                     + ChatColor.DARK_GRAY + " | " + ChatColor.GRAY + "点券: " + flag(hooks.hasPoints())
                     + ChatColor.DARK_GRAY + " | " + ChatColor.GRAY + "封禁: " + flag(hooks.hasBans()));
+            boolean strict = getConfig().getBoolean("security.strict-encryption", false);
+            sender.sendMessage(ChatColor.GRAY + "传输加密: " + (strict
+                    ? ChatColor.GREEN + "强制（App 必须建立 AES-256-GCM 会话）"
+                    : ChatColor.YELLOW + "按需（登录前明文，登录后能握手就加密）")
+                    + ChatColor.DARK_GRAY + " | " + ChatColor.GRAY + "HTTPS: "
+                    + (getConfig().getBoolean("http.tls", false) ? ChatColor.GREEN + "开" : ChatColor.GRAY + "关"));
             sender.sendMessage(ChatColor.GRAY + "在线玩家: " + ChatColor.WHITE + Bukkit.getOnlinePlayers().size()
                     + ChatColor.DARK_GRAY + " | " + ChatColor.GRAY + "管理员: " + ChatColor.WHITE
                     + getConfig().getStringList("admin.players").size() + " 个");
@@ -549,7 +555,19 @@ public final class NalxerApp extends JavaPlugin implements Listener {
             getLogger().info(sender.getName() + " 执行了 /linuxapp logout " + who);
             return true;
         }
-        sender.sendMessage(ChatColor.YELLOW + "用法: /linuxapp <status|reload|token [玩家名]|logout <玩家名>>");
+        if ("cert".equals(sub)) {
+            if (args.length > 1 && "regen".equalsIgnoreCase(args[1])) {
+                api.regenerateCertificate();
+                sender.sendMessage(ChatColor.GREEN + "[LinuxAPP] 证书已重新生成，把 plugins/LinuxAPP/server.crt 装到手机上。");
+                return true;
+            }
+            for (String line : api.certificateInfo().split("\n")) {
+                sender.sendMessage(ChatColor.GRAY + line);
+            }
+            sender.sendMessage(ChatColor.YELLOW + "想按当前 cert-dn / cert-san 重新签一张：/linuxapp cert regen");
+            return true;
+        }
+        sender.sendMessage(ChatColor.YELLOW + "用法: /linuxapp <status|reload|token [玩家名]|logout <玩家名>|cert [regen]>");
         return true;
     }
 
