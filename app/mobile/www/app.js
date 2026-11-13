@@ -332,6 +332,7 @@
   }
 
   var CRYPTO_TRIED = false;
+  var CRYPTO_PENDING = null;
   var cryptoLastError = '';
 
   function cryptoInit() {
@@ -375,7 +376,10 @@
               });
           });
       })
-      .catch(function () { return false; });
+      .catch(function (e) {
+        cryptoLastError = '握手失败：' + ((e && e.message) ? e.message : e);
+        return false;
+      });
   }
 
   function cryptoEncrypt(text) {
@@ -398,13 +402,45 @@
       .then(function (pt) { return new TextDecoder().decode(pt); });
   }
 
+  function ensureCrypto() {
+    if (CRYPTO_SESSION.ready) return Promise.resolve(true);
+    if (CRYPTO_PENDING) return CRYPTO_PENDING;
+    CRYPTO_PENDING = cryptoInit().then(function (ok) {
+      CRYPTO_PENDING = null;
+      return ok;
+    }, function () {
+      CRYPTO_PENDING = null;
+      return false;
+    });
+    return CRYPTO_PENDING;
+  }
+
   function api(path, opts) {
+    var first = (opts && opts._retried) === true;
+    return ensureCrypto().then(function () {
+      return apiOnce(path, opts);
+    }).catch(function (err) {
+      // 426 说明这一发是明文：重新握手后重试一次
+      if (err && err.status === 426 && !first) {
+        CRYPTO_TRIED = false;
+        CRYPTO_SESSION.ready = false;
+        return ensureCrypto().then(function () {
+          var o2 = {};
+          for (var k in (opts || {})) o2[k] = opts[k];
+          o2._retried = true;
+          return apiOnce(path, o2);
+        });
+      }
+      throw err;
+    });
+  }
+
+  function apiOnce(path, opts) {
     opts = opts || {};
     var url = state.server + path;
     var headers = { 'Accept': 'application/json' };
     if (opts.body != null) headers['Content-Type'] = 'application/json';
     if (state.token) headers['Authorization'] = 'Bearer ' + state.token;
-    if (!CRYPTO_SESSION.ready && !CRYPTO_TRIED && state.server) cryptoInit();
     var useEnc = CRYPTO_SESSION.ready && !!CRYPTO_SESSION.id;
     if (useEnc) {
       headers['X-Session'] = CRYPTO_SESSION.id;
@@ -437,8 +473,8 @@
             var data = null;
             try { data = plain ? JSON.parse(plain) : {}; } catch (e) { data = { ok: false, message: '服务器返回的不是 JSON' }; }
             if (r.status === 426) {
-              var e426 = new Error((data && data.message) || '这个接口只接受加密请求')
-                  ;
+              var why = cryptoLastError ? ('（本机握手失败：' + cryptoLastError + '）') : '';
+              var e426 = new Error(((data && data.message) || '这个接口只接受加密请求') + why);
               e426.status = 426;
               throw e426;
             }
@@ -497,7 +533,15 @@
       .then(function (res) {
         var v = '';
         try { v = JSON.parse(res.body).version || ''; } catch (e) {}
-        box.textContent = '连接成功：HTTP ' + res.code + (v ? '，服务端版本 ' + v : '') + NL + '地址 ' + url;
+        box.textContent = '连接成功：HTTP ' + res.code + (v ? '，服务端版本 ' + v : '') + NL + '地址 ' + url + NL + '正在测试加密通道…';
+        var keep = state.server;
+        state.server = url;
+        CRYPTO_TRIED = false;
+        CRYPTO_SESSION.ready = false;
+        return ensureCrypto().then(function (ok) {
+          state.server = keep;
+          box.textContent += NL + (ok ? '加密通道：已建立（AES-256-GCM）' : ('加密通道：失败 — ' + (cryptoLastError || '未知原因')));
+        });
       })
       .catch(function (e) {
         if (timer) clearTimeout(timer);
