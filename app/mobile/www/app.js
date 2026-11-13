@@ -343,41 +343,37 @@
     cryptoLastError = '';
     if (!cryptoUsable()) { cryptoLastError = '这个 WebView 不支持 WebCrypto（crypto.subtle 不可用）'; return Promise.resolve(false); }
     var base = state.server;
-    return fetch(base + '/api/session', { headers: { 'Accept': 'application/json' } })
-      .then(function (r) { return r.text(); })
-      .then(function (txt) {
-        var d = null;
-        try { d = JSON.parse(txt); } catch (e) { return false; }
-        if (!d || !d.ok || !d.pub) return false;
-        var der = bytesFromB64(d.pub);
-        return crypto.subtle.importKey('spki', der.buffer, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt'])
-          .then(function (pub) {
-            return crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt'])
-              .then(function (key) {
-                return crypto.subtle.exportKey('raw', key).then(function (raw) {
-                  return crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, raw).then(function (wrapped) {
-                    var id = '';
-                    var rnd = new Uint8Array(8);
-                    crypto.getRandomValues(rnd);
-                    for (var i = 0; i < rnd.length; i++) id += ('0' + rnd[i].toString(16)).slice(-2);
-                    return fetch(base + '/api/session', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ id: id, key: b64FromBytes(new Uint8Array(wrapped)) })
-                    }).then(function (r2) { return r2.text(); }).then(function (t2) {
-                      var ok = false;
-                      try { ok = JSON.parse(t2).ok === true; } catch (e) { ok = false; }
-                      if (!ok) return false;
-                      CRYPTO_SESSION.id = id;
-                      CRYPTO_SESSION.key = key;
-                      CRYPTO_SESSION.ready = true;
-                      return true;
-                    });
-                  });
+    // 每次连接现生成一对 RSA 密钥（只留在内存里），断线重连就是全新密钥。
+    var pair = crypto.subtle.generateKey(
+      { name: 'RSA-OAEP', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+      false, ['encrypt', 'decrypt']);
+    return pair.then(function (kp) {
+      return crypto.subtle.exportKey('spki', kp.publicKey).then(function (der) {
+        var id = '';
+        var rnd = new Uint8Array(8);
+        crypto.getRandomValues(rnd);
+        for (var i = 0; i < rnd.length; i++) id += ('0' + rnd[i].toString(16)).slice(-2);
+        return fetch(base + '/api/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: id, pub: b64FromBytes(new Uint8Array(der)) })
+        }).then(function (r2) { return r2.text(); }).then(function (t2) {
+          var d = null;
+          try { d = JSON.parse(t2); } catch (e) { d = null; }
+          if (!d || !d.ok || !d.key) { cryptoLastError = '服务端没有返回会话密钥'; return false; }
+          return crypto.subtle.decrypt({ name: 'RSA-OAEP' }, kp.privateKey, bytesFromB64(d.key).buffer)
+            .then(function (raw) {
+              return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'])
+                .then(function (key) {
+                  CRYPTO_SESSION.id = id;
+                  CRYPTO_SESSION.key = key;
+                  CRYPTO_SESSION.ready = true;
+                  return true;
                 });
-              });
-          });
-      })
+            });
+        });
+      });
+    })
       .catch(function (e) {
         cryptoLastError = '握手失败：' + ((e && e.message) ? e.message : e);
         return false;

@@ -171,13 +171,50 @@ public final class ApiServer implements HttpHandler {
                 out.put("alg", "RSA-OAEP-256");
                 out.put("pub", b64(pub.getEncoded()));
                 out.put("ttl", Long.valueOf(1800L));
+                out.put("mode", "client-key");
                 send(ex, 200, Json.write(out));
                 return;
             }
             Map<String, String> in = Json.parseFlat(body);
             String id = in == null ? null : in.get("id");
+            String clientPub = in == null ? null : in.get("pub");
             String key = in == null ? null : in.get("key");
-            if (id == null || key == null || id.length() < 8 || id.length() > 64) {
+            if (id == null || id.length() < 8 || id.length() > 64) {
+                send(ex, 400, obj(false, "会话参数不对"));
+                return;
+            }
+
+            // 新握手：客户端每次连接现生成一对 RSA 密钥，把公钥发上来，
+            // 服务端生成一把随机 AES-256 会话密钥，用客户端公钥加密后回传。
+            // 这样服务端的私钥只用于 HTTPS 证书，不参与会话密钥分发。
+            if (clientPub != null && clientPub.length() > 100) {
+                java.security.PublicKey cpk;
+                try {
+                    java.security.spec.X509EncodedKeySpec spec =
+                            new java.security.spec.X509EncodedKeySpec(unb64(clientPub));
+                    cpk = java.security.KeyFactory.getInstance("RSA").generatePublic(spec);
+                } catch (Exception bad) {
+                    send(ex, 400, obj(false, "客户端公钥格式不对"));
+                    return;
+                }
+                byte[] rawKey = new byte[32];
+                new java.security.SecureRandom().nextBytes(rawKey);
+                Cipher enc = Cipher.getInstance("RSA/ECB/OAEPPadding");
+                enc.init(Cipher.ENCRYPT_MODE, cpk, new javax.crypto.spec.OAEPParameterSpec(
+                        "SHA-256", "MGF1", java.security.spec.MGF1ParameterSpec.SHA256,
+                        javax.crypto.spec.PSource.PSpecified.DEFAULT));
+                byte[] wrapped = enc.doFinal(rawKey);
+                ENC_SESSIONS.put(id, new EncSession(new SecretKeySpec(rawKey, "AES"), clientIp(ex)));
+                Map<String, Object> ok = new LinkedHashMap<String, Object>();
+                ok.put("ok", Boolean.TRUE);
+                ok.put("key", b64(wrapped));
+                ok.put("alg", "RSA-OAEP-256");
+                ok.put("ttl", Long.valueOf(1800L));
+                send(ex, 200, Json.write(ok));
+                return;
+            }
+
+            if (key == null) {
                 send(ex, 400, obj(false, "会话参数不对"));
                 return;
             }
@@ -318,8 +355,27 @@ public final class ApiServer implements HttpHandler {
     };
 
     /** 没有证书就自己签一张（PKCS12，10 年），并把公钥导成 server.crt 供手机安装 */
+    /** 私钥文件只给运行服务器的人读：POSIX 上 600，父目录 700。 */
+    private void lockDown(File f) {
+        if (f == null || !f.isFile()) return;
+        try {
+            java.nio.file.Path p = f.toPath();
+            java.nio.file.Files.setPosixFilePermissions(p,
+                    java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));
+        } catch (Throwable ignored) {
+            // Windows 没有 POSIX 权限位，交给系统 ACL
+        }
+        try {
+            java.nio.file.Files.setPosixFilePermissions(f.getParentFile().toPath(),
+                    java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"));
+        } catch (Throwable ignored) {
+        }
+    }
+
     private void ensureKeystore() {
         File f = keystoreFile();
+        lockDown(f);
+        lockDown(new File(plugin.getDataFolder(), "server.crt"));
         String dn = plugin.getConfig().getString("http.cert-dn", "CN=LinuxAPP");
         String san = plugin.getConfig().getString("http.cert-san", "");
         if (san == null) san = "";

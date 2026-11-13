@@ -499,26 +499,58 @@ public final class NalxerApp extends JavaPlugin implements Listener {
         }
         String sub = args.length == 0 ? "status" : args[0].toLowerCase();
         if ("status".equals(sub)) {
-            sender.sendMessage(ChatColor.DARK_GRAY + "-------- " + ChatColor.AQUA + "LinuxAPP"
-                    + ChatColor.DARK_GRAY + " --------");
-            sender.sendMessage(ChatColor.GRAY + "接口: " + ChatColor.WHITE
-                    + (api != null && api.isRunning() ? "运行中" : "未启动")
-                    + ChatColor.DARK_GRAY + " | " + ChatColor.GRAY + "地址: " + ChatColor.WHITE
-                    + "http://" + getConfig().getString("http.host", "0.0.0.0") + ":"
-                    + getConfig().getInt("http.port", 49282));
-            sender.sendMessage(ChatColor.GRAY + "AuthMe: " + flag(hooks.hasAuthMe())
-                    + ChatColor.DARK_GRAY + " | " + ChatColor.GRAY + "金币: " + flag(hooks.hasEconomy())
-                    + ChatColor.DARK_GRAY + " | " + ChatColor.GRAY + "点券: " + flag(hooks.hasPoints())
-                    + ChatColor.DARK_GRAY + " | " + ChatColor.GRAY + "封禁: " + flag(hooks.hasBans()));
+            sender.sendMessage(ChatColor.DARK_GRAY + "-------- " + ChatColor.AQUA + "LinuxAPP "
+                    + getDescription().getVersion() + ChatColor.DARK_GRAY + " --------");
+            boolean running = api != null && api.isRunning();
+            String host = getConfig().getString("http.host", "0.0.0.0");
+            int port = getConfig().getInt("http.port", 49282);
+            int tlsPort = getConfig().getInt("http.tls-port", port + 1);
+            boolean tls = getConfig().getBoolean("http.tls", false);
+            sender.sendMessage(ChatColor.GRAY + "接口: " + (running ? ChatColor.GREEN + "运行中" : ChatColor.RED + "未启动")
+                    + ChatColor.DARK_GRAY + " | " + ChatColor.GRAY + "HTTP: " + ChatColor.WHITE
+                    + "http://" + host + ":" + port
+                    + ChatColor.DARK_GRAY + " | " + ChatColor.GRAY + "HTTPS: "
+                    + (tls ? ChatColor.GREEN + "https://" + host + ":" + tlsPort : ChatColor.GRAY + "未开"));
+
             boolean strict = getConfig().getBoolean("security.strict-encryption", false);
             sender.sendMessage(ChatColor.GRAY + "传输加密: " + (strict
                     ? ChatColor.GREEN + "强制（App 必须建立 AES-256-GCM 会话）"
                     : ChatColor.YELLOW + "按需（登录前明文，登录后能握手就加密）")
-                    + ChatColor.DARK_GRAY + " | " + ChatColor.GRAY + "HTTPS: "
-                    + (getConfig().getBoolean("http.tls", false) ? ChatColor.GREEN + "开" : ChatColor.GRAY + "关"));
-            sender.sendMessage(ChatColor.GRAY + "在线玩家: " + ChatColor.WHITE + Bukkit.getOnlinePlayers().size()
-                    + ChatColor.DARK_GRAY + " | " + ChatColor.GRAY + "管理员: " + ChatColor.WHITE
-                    + getConfig().getStringList("admin.players").size() + " 个");
+                    + ChatColor.DARK_GRAY + " | " + ChatColor.GRAY + "明文兜底: "
+                    + flag(getConfig().getBoolean("security.allow-plaintext-fallback", true))
+                    + ChatColor.DARK_GRAY + " | " + ChatColor.GRAY + "保护 AuthMe 库: "
+                    + flag(getConfig().getBoolean("security.protect-authme", true)));
+
+            sender.sendMessage(ChatColor.GRAY + "插件联动:");
+            sender.sendMessage("  " + mark("AuthMe", installed("AuthMe"))
+                    + ChatColor.DARK_GRAY + " " + mark("InTheNameOfLinux", installed("InTheNameOfLinux"))
+                    + ChatColor.DARK_GRAY + " " + mark("LinuxTeam", installed("LinuxTeam"))
+                    + ChatColor.DARK_GRAY + " " + mark("LinuxTitle", installed("LinuxTitle")));
+            sender.sendMessage("  " + mark("NalxerECO", installed("NalxerECO"))
+                    + ChatColor.DARK_GRAY + " " + mark("Vault", installed("Vault"))
+                    + ChatColor.DARK_GRAY + " " + mark("PlayerPoints", installed("PlayerPoints"))
+                    + ChatColor.DARK_GRAY + " " + mark("XlandCore", installed("XlandCore")));
+            sender.sendMessage("  " + mark("Residence", installed("Residence"))
+                    + ChatColor.DARK_GRAY + " " + mark("NalxerLink", installed("NalxerLink"))
+                    + ChatColor.DARK_GRAY + " " + mark("FakePlayerPlugin", installed("FakePlayerPlugin"))
+                    + ChatColor.DARK_GRAY + " " + mark("Essentials", installed("Essentials")));
+
+            sender.sendMessage(ChatColor.GRAY + "功能: 封禁" + flag(hooks.hasBans())
+                    + ChatColor.DARK_GRAY + " | " + ChatColor.GRAY + "举报" + flag(hooks.hasReports())
+                    + ChatColor.DARK_GRAY + " | " + ChatColor.GRAY + "队伍" + flag(hooks.hasTeams())
+                    + ChatColor.DARK_GRAY + " | " + ChatColor.GRAY + "头衔" + flag(hooks.hasTitles())
+                    + ChatColor.DARK_GRAY + " | " + ChatColor.GRAY + "金币" + flag(hooks.hasEconomy())
+                    + ChatColor.DARK_GRAY + " | " + ChatColor.GRAY + "点券" + flag(hooks.hasPoints())
+                    + ChatColor.DARK_GRAY + " | " + ChatColor.GRAY + "身份" + flag(hooks.hasIdentity())
+                    + ChatColor.DARK_GRAY + " | " + ChatColor.GRAY + "领地共享" + flag(installed("Residence")));
+
+            sender.sendMessage(ChatColor.GRAY + "在线: " + ChatColor.WHITE + Bukkit.getOnlinePlayers().size()
+                    + ChatColor.DARK_GRAY + " | " + ChatColor.GRAY + "管理员名单: " + ChatColor.WHITE
+                    + getConfig().getStringList("admin.players").size() + " 个"
+                    + ChatColor.DARK_GRAY + " | " + ChatColor.GRAY + "su: " + ChatColor.WHITE
+                    + getConfig().getStringList("su.players").size() + " 个"
+                    + ChatColor.DARK_GRAY + " | " + ChatColor.GRAY + "令牌有效期: " + ChatColor.WHITE
+                    + getConfig().getInt("token.ttl-hours", 168) + " 小时");
             return true;
         }
         if ("reload".equals(sub)) {
@@ -569,6 +601,15 @@ public final class NalxerApp extends JavaPlugin implements Listener {
         }
         sender.sendMessage(ChatColor.YELLOW + "用法: /linuxapp <status|reload|token [玩家名]|logout <玩家名>|cert [regen]>");
         return true;
+    }
+
+    private static boolean installed(String name) {
+        org.bukkit.plugin.Plugin pl = Bukkit.getPluginManager().getPlugin(name);
+        return pl != null && pl.isEnabled();
+    }
+
+    private static String mark(String name, boolean on) {
+        return (on ? ChatColor.GREEN + "[✔] " + ChatColor.WHITE : ChatColor.DARK_GRAY + "[✘] " + ChatColor.GRAY) + name;
     }
 
     private static String flag(boolean b) {

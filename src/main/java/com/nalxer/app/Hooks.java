@@ -156,9 +156,9 @@ public final class Hooks {
 
     public void bindAll() {
         itnol = (InTheNameOfLinux) Bukkit.getPluginManager().getPlugin("InTheNameOfLinux");
-        local = new Local(plugin);
-        Bukkit.getPluginManager().registerEvents(local, plugin);
         if (itnol == null) {
+            local = new Local(plugin);
+            Bukkit.getPluginManager().registerEvents(local, plugin);
             plugin.getLogger().info("[联动] 没装 InTheNameOfLinux —— 禁言/封禁/举报改用本地实现");
         }
 
@@ -614,8 +614,13 @@ public final class Hooks {
         return pointsApi != null && pointsLook != null;
     }
 
+    /** 仅当服务器没装 InTheNameOfLinux 时才走本地实现。 */
+    private boolean useLocal() {
+        return itnol == null && local != null;
+    }
+
     public boolean hasBans() {
-        if (local != null) return true;
+        if (useLocal()) return true;
         return itnol != null && itnol.getBanManager() != null;
     }
 
@@ -872,6 +877,10 @@ public final class Hooks {
     public boolean ban(String name, String reason, long durationMs, CommandSender operator) {
         lastMessage = null;
         if (banManager == null) {
+            if (local == null) {
+                lastMessage = "服务器没装 InTheNameOfLinux，封禁功能不可用";
+                return false;
+            }
             local.ban(name, durationMs <= 0L ? 0L : System.currentTimeMillis() + durationMs,
                     reason == null ? "" : reason);
             lastMessage = "已封禁 " + name;
@@ -909,6 +918,10 @@ public final class Hooks {
     public boolean unban(String name, CommandSender operator) {
         lastMessage = null;
         if (banManager == null || unbanPlayer == null) {
+            if (local == null) {
+                lastMessage = "服务器没装 InTheNameOfLinux，解封功能不可用";
+                return false;
+            }
             boolean ok = local.unban(name);
             lastMessage = ok ? ("已解封 " + name) : (name + " 没有被封禁");
             return ok;
@@ -2158,13 +2171,13 @@ public final class Hooks {
     }
 
     public boolean hasReports() {
-        if (local != null) return true;
+        if (useLocal()) return true;
         return itnol != null && itnol.getReportManager() != null;
     }
 
     /** 举报列表；pendingOnly 只返回没处理的，reporter 非空只返回该玩家提交的。 */
     public java.util.List<java.util.Map<String, Object>> reports(boolean pendingOnly, String reporter) {
-        if (local != null) return local.reports(pendingOnly, reporter);
+        if (useLocal()) return local.reports(pendingOnly, reporter);
         java.util.List<java.util.Map<String, Object>> out = new java.util.ArrayList<java.util.Map<String, Object>>();
         ReportManager rm = itnol == null ? null : itnol.getReportManager();
         if (rm == null) return out;
@@ -2179,7 +2192,7 @@ public final class Hooks {
 
     /** 单条举报。 */
     public java.util.Map<String, Object> report(int id) {
-        if (local != null) return local.report(id);
+        if (useLocal()) return local.report(id);
         ReportManager rm = itnol == null ? null : itnol.getReportManager();
         if (rm == null) return null;
         ReportManager.Report r = rm.getReport(id);
@@ -2203,7 +2216,7 @@ public final class Hooks {
     /** App 提交举报，返回给玩家看的一句话。 */
     /** App 提交举报，返回给玩家看的一句话。 */
     public String createReport(String reporter, String target, String reason) {
-        if (local != null) return local.createReport(reporter, target, reason);
+        if (useLocal()) return local.createReport(reporter, target, reason);
         ReportManager rm = itnol == null ? null : itnol.getReportManager();
         if (rm == null) return "服务器没接上举报系统（ITNOL 没装或版本太旧）";
         String[] err = new String[1];
@@ -2215,7 +2228,7 @@ public final class Hooks {
     /** 处理举报；accept=false 表示驳回。返回给管理员看的一句话。 */
     /** 处理举报；accept=false 表示驳回。返回给管理员看的一句话。 */
     public String handleReport(int id, boolean accept, String note, String handlerName) {
-        if (local != null) return local.handleReport(id, accept, note, appActor(handlerName));
+        if (useLocal()) return local.handleReport(id, accept, note, appActor(handlerName));
         ReportManager rm = itnol == null ? null : itnol.getReportManager();
         if (rm == null) return "服务器没接上举报系统";
         CollectSender sink = new CollectSender(appActor(handlerName));
@@ -2239,7 +2252,7 @@ public final class Hooks {
 
     /** 全部惩罚记录。 */
     public java.util.List<java.util.Map<String, Object>> penalties() {
-        if (local != null) return local.penalties();
+        if (useLocal()) return local.penalties();
         java.util.List<java.util.Map<String, Object>> out = new java.util.ArrayList<java.util.Map<String, Object>>();
         LinuxPenalty lp = itnol == null ? null : itnol.getPenaltyManager();
         if (lp == null) return out;
@@ -2252,7 +2265,7 @@ public final class Hooks {
 
     /** 某人的惩罚情况（banmsg / banmove / banblock）。 */
     public java.util.Map<String, Object> penaltiesOf(String playerName) {
-        if (local != null) return local.penaltiesOf(playerName);
+        if (useLocal()) return local.penaltiesOf(playerName);
         java.util.Map<String, Object> out = new java.util.LinkedHashMap<String, Object>();
         LinuxPenalty lp = itnol == null ? null : itnol.getPenaltyManager();
         if (lp == null) return out;

@@ -140,7 +140,7 @@ jobs:
     name: iOS 12 未签名 ipa
     runs-on: macos-15-intel
     env:
-      VERSION: '26.13.16'
+      VERSION: '26.13.18'
     steps:
       - uses: actions/checkout@v4
 
