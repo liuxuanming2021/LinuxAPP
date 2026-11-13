@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  var DEFAULT_SERVER = 'https://aam.rainplay.cn:49282';
+  var DEFAULT_SERVER = 'http://aam.rainplay.cn:49282';
 
   var LS = {
     server: 'nalxer.server',
@@ -81,9 +81,7 @@
   function normServer(v) {
     var s = String(v == null ? '' : v).trim();
     if (!s) return DEFAULT_SERVER;
-    if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
-    // 明文 http 一律升级为 https：服务器默认不再接受明文请求
-    s = s.replace(/^http:\/\//i, 'https://');
+    if (!/^https?:\/\//i.test(s)) s = 'http://' + s;
     return s.replace(/\/+$/, '');
   }
 
@@ -455,8 +453,7 @@
       if (err && (err.status || err.needVerify)) throw err;
       if (err && err.message && (err.message.indexOf('登录已过期') >= 0 || err.message.indexOf('连接超时') >= 0 || err.message.indexOf('加密通道') >= 0)) throw err;
       if (err && err.message && err.message.indexOf('解密') >= 0) throw err;
-      var tlsHint = location.protocol === 'https:' ? '' : '（这个版本只允许 https，请把地址改成 https://）';
-      throw new Error('连不上 ' + url + ' —— 看这几点：服务器开着吗 / 安全组放行端口了吗 / 地址是 https:// 吗 / 手机信任服务器证书了吗' + tlsHint);
+      throw new Error('连不上 ' + url + ' —— 看这几点：服务器开着吗 / 防火墙放行这个端口了吗 / 地址写得对吗（默认 http://IP:49282）');
     });
   }
 
