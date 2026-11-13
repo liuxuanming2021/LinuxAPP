@@ -420,6 +420,14 @@
     return ensureCrypto().then(function () {
       return apiOnce(path, opts);
     }).catch(function (err) {
+      // 服务端重启 / 会话过期：重新握手，重试一次（不要把这个当成业务错误弹给用户）
+      if (err && (err.status === 409 || err.code === 'session_expired' || (err.status === 426 && CRYPTO_TRIED))) {
+        CRYPTO_TRIED = false;
+        CRYPTO_SESSION.ready = false;
+        return ensureCrypto().then(function () {
+          return apiOnce(path, opts);
+        });
+      }
       if (err && err.status === 426 && !CRYPTO_WARNED) {
         CRYPTO_WARNED = true;
         try {
@@ -468,6 +476,12 @@
           return after.then(function (plain) {
             var data = null;
             try { data = plain ? JSON.parse(plain) : {}; } catch (e) { data = { ok: false, message: '服务器返回的不是 JSON' }; }
+            if (r.status === 409 && data && data.code === 'session_expired') {
+              var e409 = new Error(data.message || '加密会话失效了，正在重新连接');
+              e409.status = 409;
+              e409.code = 'session_expired';
+              throw e409;
+            }
             if (r.status === 426) {
               var why = cryptoLastError ? ('（本机握手失败：' + cryptoLastError + '）') : '';
               var e426 = new Error(((data && data.message) || '这个接口只接受加密请求') + why);
