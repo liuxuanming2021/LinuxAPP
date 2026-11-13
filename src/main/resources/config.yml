@@ -32,7 +32,8 @@ security:
   allow-plaintext: true
   # 启动时检查 AuthMe 数据库权限（过宽会提示 chmod 600），并保证插件不读它的内容
   protect-authme: true
-  # 强制应用层加密（AES-GCM）：除 /api/health 与 /api/session 外，明文请求一律 426
+  # 强制应用层加密（AES-GCM）：true 时除 /api/health 与 /api/session 外，明文请求一律 426
+  # 默认 true：加密通道默认打开，App 会自动握手；握手失败的请求一律 426
   require-encryption: true
   # 调试用：是否记录请求体（默认不记，避免密码进日志）
   log-bodies: false
