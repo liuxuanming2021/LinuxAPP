@@ -333,6 +333,7 @@
 
   var CRYPTO_TRIED = false;
   var CRYPTO_PENDING = null;
+  var CRYPTO_WARNED = false;
   var cryptoLastError = '';
 
   function cryptoInit() {
@@ -421,6 +422,12 @@
       return apiOnce(path, opts);
     }).catch(function (err) {
       // 426 说明这一发是明文：重新握手后重试一次
+      if (err && err.status === 426 && !CRYPTO_WARNED) {
+        CRYPTO_WARNED = true;
+        try {
+          toast('这台设备没能建立加密通道，已改用明文连接' + (cryptoLastError ? '（' + cryptoLastError + '）' : ''));
+        } catch (e0) {}
+      }
       if (err && err.status === 426 && !first) {
         CRYPTO_TRIED = false;
         CRYPTO_SESSION.ready = false;
@@ -442,6 +449,7 @@
     if (opts.body != null) headers['Content-Type'] = 'application/json';
     if (state.token) headers['Authorization'] = 'Bearer ' + state.token;
     var useEnc = CRYPTO_SESSION.ready && !!CRYPTO_SESSION.id;
+    if (!useEnc && CRYPTO_TRIED) headers['X-No-Enc'] = '1';
     if (useEnc) {
       headers['X-Session'] = CRYPTO_SESSION.id;
       headers['X-Enc'] = '1';

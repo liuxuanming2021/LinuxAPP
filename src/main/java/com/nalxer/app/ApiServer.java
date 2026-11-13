@@ -84,6 +84,8 @@ public final class ApiServer implements HttpHandler {
     private static final java.util.Map<String, EncSession> ENC_SESSIONS =
             new java.util.concurrent.ConcurrentHashMap<String, EncSession>();
 
+    private static long lastFallbackWarn = 0L;
+
     private static final class EncSession {
         final SecretKey key;
         final String ip;
@@ -661,8 +663,19 @@ public final class ApiServer implements HttpHandler {
             boolean requireEnc = plugin.getConfig().getBoolean("security.require-encryption", true);
             if (requireEnc && encOf(ex) == null
                     && !"/api/health".equals(path) && !"/api/session".equals(path)) {
-                send(ex, 426, obj(false, "这个接口只接受加密请求（请升级到支持加密通道的 App）"));
-                return;
+                // 老版本 App / 本机没有 WebCrypto 时，允许它明确声明「我没法加密」，退回明文，避免直接锁死
+                boolean fallback = plugin.getConfig().getBoolean("security.allow-plaintext-fallback", true);
+                boolean clientSaysPlain = "1".equals(ex.getRequestHeaders().getFirst("X-No-Enc"));
+                if (fallback && clientSaysPlain) {
+                    long now = System.currentTimeMillis();
+                    if (now - lastFallbackWarn > 60000L) {
+                        lastFallbackWarn = now;
+                        plugin.getLogger().warning("[安全] 有客户端声明无法建立加密通道，已按 security.allow-plaintext-fallback 放行明文：" + path);
+                    }
+                } else {
+                    send(ex, 426, obj(false, "这个接口只接受加密请求（App 需要升级到支持加密通道的版本；服务端也可设 security.allow-plaintext-fallback: true 兼容老客户端）"));
+                    return;
+                }
             }
 
             String body = readBody(ex);

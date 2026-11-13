@@ -6,7 +6,7 @@
 
     <groupId>com.nalxer</groupId>
     <artifactId>NalxerApp</artifactId>
-    <version>26.13.12</version>
+    <version>26.13.13</version>
     <packaging>jar</packaging>
 
     <name>NalxerApp</name>
