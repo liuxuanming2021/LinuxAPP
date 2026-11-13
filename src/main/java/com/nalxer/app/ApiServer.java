@@ -660,9 +660,10 @@ public final class ApiServer implements HttpHandler {
                 }
             }
 
-            boolean requireEnc = plugin.getConfig().getBoolean("security.require-encryption", true);
+            boolean requireEnc = plugin.getConfig().getBoolean("security.strict-encryption", false); // 默认不拦，老配置里的 require-encryption 不再生效
             if (requireEnc && encOf(ex) == null
-                    && !"/api/health".equals(path) && !"/api/session".equals(path)) {
+                    && !"/api/health".equals(path) && !"/api/session".equals(path)
+                    && !"/api/login".equals(path)) {
                 // 老版本 App / 本机没有 WebCrypto 时，允许它明确声明「我没法加密」，退回明文，避免直接锁死
                 boolean fallback = plugin.getConfig().getBoolean("security.allow-plaintext-fallback", true);
                 boolean clientSaysPlain = "1".equals(ex.getRequestHeaders().getFirst("X-No-Enc"));

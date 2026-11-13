@@ -34,7 +34,8 @@ security:
   protect-authme: true
   # 强制应用层加密（AES-GCM）：true 时除 /api/health 与 /api/session 外，明文请求一律 426
   # 默认 true：加密通道默认打开，App 会自动握手；握手失败的请求一律 426
-  require-encryption: true
+  # 登录前不加密；登录后能握手就自动加密。true 才会强制（会让老客户端 426，一般别开）
+  strict-encryption: false
   # 客户端明确表示无法加密时（老版本 / 设备缺 WebCrypto），是否退回明文；false 则一律 426
   allow-plaintext-fallback: true
   # 调试用：是否记录请求体（默认不记，避免密码进日志）

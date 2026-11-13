@@ -417,26 +417,16 @@
   }
 
   function api(path, opts) {
-    var first = (opts && opts._retried) === true;
+    // 登录前不加密（也不握手）：只有拿到 token 之后才走加密通道
+    if (!state.token) return apiOnce(path, opts);
     return ensureCrypto().then(function () {
       return apiOnce(path, opts);
     }).catch(function (err) {
-      // 426 说明这一发是明文：重新握手后重试一次
       if (err && err.status === 426 && !CRYPTO_WARNED) {
         CRYPTO_WARNED = true;
         try {
           toast('这台设备没能建立加密通道，已改用明文连接' + (cryptoLastError ? '（' + cryptoLastError + '）' : ''));
         } catch (e0) {}
-      }
-      if (err && err.status === 426 && !first) {
-        CRYPTO_TRIED = false;
-        CRYPTO_SESSION.ready = false;
-        return ensureCrypto().then(function () {
-          var o2 = {};
-          for (var k in (opts || {})) o2[k] = opts[k];
-          o2._retried = true;
-          return apiOnce(path, o2);
-        });
       }
       throw err;
     });
