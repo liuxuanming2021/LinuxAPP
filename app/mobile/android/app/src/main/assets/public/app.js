@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  var DEFAULT_SERVER = 'http://aam.rainplay.cn:49282';
+  var DEFAULT_SERVER = 'https://api.nalxer.top:49283';
 
   var LS = {
     server: 'nalxer.server',
