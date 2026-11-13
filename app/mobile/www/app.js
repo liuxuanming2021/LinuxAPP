@@ -617,9 +617,20 @@
   }
 
   function logout(silent) {
-    if (!silent && state.token) {
-      // 告诉服务端「我退了」，另一台设备才能立刻登录
-      api('/api/logout', { body: {}, quiet: true }).catch(function () {});
+    if (!silent && state.token && state.server) {
+      // 告诉服务端「我退了」，另一台设备才能立刻登录。
+      // 这里用最朴素的 fetch（不走加密通道、不用 api()）：
+      // 退出时可能还没握手，走 api() 会被 426 拦下，令牌就永远释放不了。
+      try {
+        var base = String(state.server).replace(/\/+$/, '');
+        fetch(base + '/api/logout', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + state.token, 'Content-Type': 'application/json' },
+          body: '{}',
+          cache: 'no-store',
+          keepalive: true
+        }).catch(function () {});
+      } catch (e) { /* 忽略：本地照样退出 */ }
     }
     state.token = '';
     state.name = '';
