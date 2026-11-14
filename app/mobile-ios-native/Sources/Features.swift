@@ -89,7 +89,7 @@ extension AppState {
         guard !key.isEmpty else { return toast("先写个名字") }
         Task {
             do {
-                let r = try await APIClient.shared.get("/api/admin/players?q=\(esc(key))")
+                let r = try await APIClient.shared.get("/api/admin/players?q=\(self.esc(key))")
                 self.onMain { self.searchResults = r.a("players") }
             } catch { self.toast(error.localizedDescription) }
         }
@@ -98,7 +98,7 @@ extension AppState {
     func loadPlayerDetail(_ name: String) {
         Task {
             do {
-                let r = try await APIClient.shared.get("/api/admin/player?name=\(esc(name))")
+                let r = try await APIClient.shared.get("/api/admin/player?name=\(self.esc(name))")
                 guard r.b("ok") else { return self.toast(r.s("message", "读不到这个玩家")) }
                 self.onMain {
                     self.detail = r.m("data")
@@ -140,7 +140,7 @@ extension AppState {
     func loadAdminReports(_ filter: String) {
         Task {
             do {
-                let r = try await APIClient.shared.get("/api/admin/reports?filter=\(esc(filter))")
+                let r = try await APIClient.shared.get("/api/admin/reports?filter=\(self.esc(filter))")
                 self.onMain {
                     self.adminReports = r.a("reports")
                     self.reportTotal = r.i("count")

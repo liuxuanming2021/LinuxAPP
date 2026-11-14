@@ -92,7 +92,7 @@ struct RootView: View {
         case 0: store.loadMeSoon(); store.loadMyReports()
         case 1: Task { await store.loadChat() }; store.loadTeam()
         case 2: store.loadTitles()
-        case 3: store.loadOnline()
+        case 3: Task { await store.loadOnline() }
         default: store.loadMeSoon()
         }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()

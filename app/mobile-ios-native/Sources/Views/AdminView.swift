@@ -21,7 +21,7 @@ struct AdminView: View {
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
-        .onAppear { store.loadOnline() }
+        .onAppear { Task { await store.loadOnline() } }
         .sheet(isPresented: $showDetail) {
             PlayerDetailSheet().environmentObject(self.store)
         }
@@ -45,7 +45,7 @@ struct AdminView: View {
         Binding(get: { tab }, set: { v in
             tab = v
             store.searchResults = []
-            if v == 0 { store.loadOnline() }
+            if v == 0 { Task { await store.loadOnline() } }
             if v == 2 { store.loadAdminReports(store.reportFilter) }
             if v == 3 { store.loadPenalties() }
             if v == 4 { store.loadFakes() }
@@ -75,7 +75,7 @@ struct AdminView: View {
                 HStack {
                     Text("在线玩家").font(.system(size: 16, weight: .semibold))
                     Spacer()
-                    smallButton("刷新", tint: accent) { store.loadOnline() }
+                    smallButton("刷新", tint: accent) { Task { await store.loadOnline() } }
                 }
                 if store.online.isEmpty {
                     Text("现在没人在线").font(.system(size: 13)).foregroundColor(DS.muted)
