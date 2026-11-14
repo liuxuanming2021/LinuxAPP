@@ -1,11 +1,10 @@
 import Foundation
-import AudioToolbox
 import UIKit
 import UserNotifications
 
 /// 软件内 / 软件外提醒。
-/// 两种情况都发一条本地通知，这样响的是系统默认提示音（iOS 17 就是"反弹"那个），
-/// 不用自带音频文件；软件内再补一次振动和顶部提示条。
+/// 一律走系统本地通知：跟平时收到 iOS 通知一样（横幅 + 提示音），
+/// 不自绘提示条、不额外震动，避免"不像系统通知"。
 extension AppState {
 
     func askNotifyPermission() {
@@ -24,16 +23,12 @@ extension AppState {
         if !active && !notifyOut { return }
 
         let c = UNMutableNotificationContent()
-        c.title = "\(who) 在公屏说话"
+        c.title = who
         c.body = body
         c.sound = .default
+        c.threadIdentifier = "linuxapp-chat"
         UNUserNotificationCenter.current().add(
             UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil),
             withCompletionHandler: nil)
-
-        if active {
-            AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
-            toast(who + "：" + body)
-        }
     }
 }
