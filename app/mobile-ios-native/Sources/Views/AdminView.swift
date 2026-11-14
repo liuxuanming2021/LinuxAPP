@@ -35,7 +35,7 @@ struct AdminView: View {
                     ForEach(store.online, id: \.id) { p in
                         HStack {
                             Circle().fill(DS.green).frame(width: 7, height: 7)
-                            Text(p.name).font(.system(size: 15))
+                            Text(p.id).font(.system(size: 15))
                             Spacer()
                             Text(p.role).font(.system(size: 12)).foregroundColor(DS.muted)
                         }
