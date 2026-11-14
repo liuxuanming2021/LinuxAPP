@@ -25,14 +25,21 @@ extension AppState {
                 let r = try await APIClient.shared.get("/api/titles")
                 guard r.b("ok") else { return self.toast(r.s("message", "读不到头衔")) }
                 let d = r.m("data")
-                self.onMain {
-                    self.titles = d.a("titles")
-                    self.activeTitle = d.s("activeTitle")
-                    self.titleUnlocked = d.i("unlockedCount")
-                    self.titleTotal = d.i("total")
-                }
+                self.onMain { self.applyTitles(d) }
             } catch { self.toast(error.localizedDescription) }
         }
+    }
+
+    /// /api/titles 的 data 里：`active` 是当前头衔 id（字符串），
+    /// `activeTitle` 是整条头衔对象（不是字符串）——以前当成字符串读，结果永远显示「还没戴头衔」
+    func applyTitles(_ d: Map) {
+        titles = d.a("titles")
+        activeTitleId = d.s("active")
+        let active = d.m("activeTitle")
+        let display = active.s("display", active.s("id", activeTitleId))
+        activeTitle = display
+        titleUnlocked = d.i("unlockedCount")
+        titleTotal = d.i("total")
     }
 
     func equipTitle(_ id: String?) {
@@ -41,10 +48,7 @@ extension AppState {
                 let r = try await APIClient.shared.post("/api/titles", ["id": id ?? ""])
                 self.toast(r.s("message", r.b("ok") ? "已更换头衔" : "换不了"))
                 if let d = r["data"] as? Map {
-                    self.onMain {
-                        self.titles = d.a("titles")
-                        self.activeTitle = d.s("activeTitle")
-                    }
+                    self.onMain { self.applyTitles(d) }
                 }
                 self.loadMeSoon()
             } catch { self.toast(error.localizedDescription) }

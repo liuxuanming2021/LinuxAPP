@@ -90,6 +90,9 @@ final class APIClient {
 
     // MARK: - 请求
 
+    /// 当前是否已经建立加密通道（握手成功才为 true）
+    var encrypted: Bool { aesKey != nil && sessionId != nil }
+
     func get(_ path: String) async throws -> [String: Any] {
         try await call(path: path, method: "GET", body: nil)
     }
@@ -146,6 +149,9 @@ final class APIClient {
                 req.httpBody = plain
             }
         }
+
+        // 没走加密就明确告诉服务端「我这个端没法加密」，否则服务端开了 strict-encryption 会回 426
+        if !encrypted { req.setValue("1", forHTTPHeaderField: "X-No-Enc") }
 
         let (data, resp) = try await send(req)
         guard let http = resp as? HTTPURLResponse else { throw APIError.unknown }

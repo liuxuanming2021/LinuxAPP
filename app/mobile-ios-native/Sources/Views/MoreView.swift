@@ -30,7 +30,8 @@ struct MoreView: View {
             InfoRow(label: "玩家身份", value: store.roleText)
             InfoRow(label: "头衔", value: store.titleName.isEmpty ? "无" : Fmt.plain(store.titleName))
             InfoRow(label: "队伍", value: store.teamName.isEmpty ? "无" : Fmt.plain(store.teamName))
-            InfoRow(label: "连接加密", value: "已加密（AES-256-GCM）", accent: store.accent.color)
+            InfoRow(label: "连接加密", value: store.secure ? "已加密（AES-256-GCM）" : "明文（服务器未强制加密）",
+                    accent: store.secure ? DS.green : nil)
         }
         .padding(.horizontal, 16)
         .background(DS.card)

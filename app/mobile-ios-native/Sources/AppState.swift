@@ -58,7 +58,8 @@ final class AppState: ObservableObject {
 
     // 头衔
     @Published var titles: [Map] = []
-    @Published var activeTitle = ""
+    @Published var activeTitle = ""      // 显示用的名字，比如「元老」
+    @Published var activeTitleId = ""    // 服务端 data.active（小写 id）
     @Published var titleUnlocked = 0
     @Published var titleTotal = 0
 
@@ -66,6 +67,7 @@ final class AppState: ObservableObject {
     @Published var uuid = ""
     @Published var titleName = ""
     @Published var teamTag = ""
+    @Published var secure = false
     @Published var serverVersion = ""
     @Published var serverName = "LinuxAPP"
 
@@ -150,6 +152,7 @@ final class AppState: ObservableObject {
         Task {
             do {
                 try await APIClient.shared.handshake()
+                self.onMain { self.secure = APIClient.shared.encrypted }
                 let r = try await APIClient.shared.post("/api/login",
                                                        ["name": name, "password": password])
                 guard (r["ok"] as? Bool) == true, let token = r["token"] as? String else {
@@ -196,6 +199,7 @@ final class AppState: ObservableObject {
             self.messages = []
             self.name = ""
             self.caps = [:]
+            self.secure = false
         }
     }
 
@@ -204,6 +208,7 @@ final class AppState: ObservableObject {
         APIClient.shared.setToken(token)
         do {
             try await APIClient.shared.handshake()
+            self.onMain { self.secure = APIClient.shared.encrypted }
             let me = try await APIClient.shared.get("/api/me")
             guard (me["ok"] as? Bool) == true else { throw APIError.status(401, "") }
             self.onMain {
@@ -332,7 +337,8 @@ final class AppState: ObservableObject {
                                    channel: (m["channel"] as? String) ?? "world",
                                    time: Date(timeIntervalSince1970: t / 1000))
             }
-            self.onMain { self.messages = list }
+            // 服务端已经给了真消息，把本地那条占位的（id = -1）去掉
+            self.onMain { self.messages = list.filter { $0.id != -1 } }
         } catch { }
     }
 
@@ -352,12 +358,22 @@ final class AppState: ObservableObject {
     func send(_ text: String) {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
+        // 先把自己刚发的挂上去，等服务端回了再换成真的（不然要等下一轮轮询才看得见）
+        let temp = ChatMessage(id: -1, name: name, text: t,
+                               source: "app", channel: channel,
+                               time: Date())
+        onMain { self.messages.append(contentsOf: [temp]) }
         Task {
             do {
                 _ = try await APIClient.shared.post("/api/chat", ["text": t, "channel": channel, "team": teamId])
                 await self.loadChat()
             } catch {
-                self.onMain { self.errorText = error.localizedDescription }
+                let msg = error.localizedDescription
+                self.onMain {
+                    self.messages.removeAll { $0.id == -1 }
+                    self.errorText = msg
+                    self.toast(msg)
+                }
             }
         }
     }

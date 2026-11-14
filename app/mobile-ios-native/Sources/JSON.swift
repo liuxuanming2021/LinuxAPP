@@ -41,12 +41,21 @@ extension Dictionary where Key == String, Value == Any {
 
 enum Fmt {
     /// 金币那种大数字：86,422,175 → 86.4M
+    /// 金币/点券这类大数字按 1k / 1.2M / 1.2B 显示（用户要求「超过 1000 就显示 1k」）
     static func short(_ value: Double) -> String {
         let v = abs(value)
-        if v >= 100_000_000 { return String(format: "%.1f亿", value / 100_000_000) }
-        if v >= 10_000 { return String(format: "%.2f万", value / 10_000) }
+        if v >= 1_000_000_000 { return unit(value / 1_000_000_000) + "B" }
+        if v >= 1_000_000 { return unit(value / 1_000_000) + "M" }
+        if v >= 1_000 { return unit(value / 1_000) + "k" }
         if value == value.rounded() { return String(Int(value)) }
         return String(format: "%.2f", value)
+    }
+
+    /// 1.0 -> "1"，1.25 -> "1.3"（最多一位小数）
+    private static func unit(_ x: Double) -> String {
+        let one = (x * 10).rounded() / 10
+        if one == one.rounded() { return String(Int(one)) }
+        return String(format: "%.1f", one)
     }
 
     static func money(_ value: Double) -> String {

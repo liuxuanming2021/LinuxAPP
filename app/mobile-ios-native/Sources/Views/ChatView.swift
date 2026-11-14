@@ -43,9 +43,12 @@ struct ChatView: View {
             switch v {
             case 0: store.channel = "world"
             case 1: store.channel = "team"
-            default: break
+            default:
+                // 队伍页：每次进来都刷新一下队伍数据（申请、成员、开关状态）
+                store.loadTeam()
+                return
             }
-            if v != 2 { Task { await store.loadChat() } }
+            Task { await store.loadChat() }
         })
     }
 
