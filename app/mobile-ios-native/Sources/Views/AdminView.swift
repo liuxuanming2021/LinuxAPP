@@ -435,6 +435,7 @@ struct PlayerDetailSheet: View {
     @State private var showPenalty = false
     @State private var showBan = false
     @State private var banReason = ""
+    @State private var banMinutes = ""
 
     var body: some View {
         NavigationView {
@@ -517,12 +518,14 @@ struct PlayerDetailSheet: View {
                 Form {
                     Section(header: Text("封禁 \(name)")) {
                         TextField("原因（必填）", text: $banReason)
+                        TextField("时长（分钟），0 = 永久", text: $banMinutes)
+                            .keyboardType(.numberPad)
                     }
-                    Section(footer: Text("0 分钟表示永久封禁（只有管理员能永久）。")) {
+                    Section(footer: Text("分钟数留空按 0 算：0 表示永久封禁（只有管理员能永久，协管只能 1~43200 分钟）。")) {
                         Button("封禁") {
                             store.ban(name,
                                       reason: banReason.isEmpty ? "违反服务器规则" : banReason,
-                                      minutes: 0)
+                                      minutes: Int(banMinutes.trimmingCharacters(in: .whitespaces)) ?? 0)
                             showBan = false
                         }
                         Button("解封") {

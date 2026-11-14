@@ -57,7 +57,7 @@ struct ChatView: View {
     private var messageList: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(spacing: 10) {
-                ForEach(store.messages.reversed()) { m in
+                ForEach(Array(store.messages.reversed()), id: \.id) { m in
                     row(m)
                         .rotationEffect(.radians(.pi))
                         .scaleEffect(x: -1, y: 1, anchor: .center)

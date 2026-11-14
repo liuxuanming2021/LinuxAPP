@@ -114,18 +114,16 @@ struct MoreView: View {
     private var about: some View {
         VStack(spacing: 0) {
             InfoRow(label: "软件名称", value: "LinuxAPP")
-            InfoRow(label: "软件版本", value: appVersion)
-            InfoRow(label: "构建号", value: appBuild)
+            // 版本号后面直接跟构建号，像 iOS「设置」里的写法
+            InfoRow(label: "软件版本", value: appVersion + "（" + appBuild + "）")
             InfoRow(label: "客户端", value: "原生 iOS · SwiftUI")
-            InfoRow(label: "最低系统", value: "iOS 13.0")
             InfoRow(label: "系统版本", value: UIDevice.current.systemName + " " + UIDevice.current.systemVersion)
             InfoRow(label: "设备", value: UIDevice.current.model)
-            InfoRow(label: "Bundle ID", value: Bundle.main.bundleIdentifier ?? "—")
-            InfoRow(label: "接口地址", value: store.serverText)
             InfoRow(label: "服务器插件", value: store.serverVersion.isEmpty ? "读取中…" : "\(store.serverName) \(store.serverVersion)")
             InfoRow(label: "连接加密", value: store.secure ? "已加密（AES-256-GCM）" : "明文（服务器未强制加密）",
                     accent: store.secure ? DS.green : nil)
-            InfoRow(label: "数据来源", value: "LinuxAPP 插件 HTTP 接口")
+            // 地址是 https 就写 HTTPS 接口，别写死 http
+            InfoRow(label: "数据来源", value: dataSourceText)
         }
         .padding(.horizontal, 16)
         .background(DS.card)
@@ -134,6 +132,12 @@ struct MoreView: View {
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
+    }
+
+    /// 走的就是当前连的那个地址的协议，https 连的绝不能说成 http
+    private var dataSourceText: String {
+        let https = store.serverText.lowercased().hasPrefix("https://")
+        return "LinuxAPP 插件 " + (https ? "HTTPS" : "HTTP") + " 接口"
     }
 
     private var appBuild: String {

@@ -46,8 +46,14 @@ final class AppState: ObservableObject {
 
     // 社交
     /// world / team。切频道先清空，否则会先看到上一个频道的消息（队伍频道"乱跳"就是这个）
+    @Published var chatSince = 0
     @Published var channel = "world" {
-        didSet { if oldValue != channel { messages = [] } }
+        didSet {
+            if oldValue != channel {
+                messages = []
+                chatSince = 0
+            }
+        }
     }
     @Published var messages: [ChatMessage] = []
     @Published var online: [OnlinePlayer] = []
@@ -326,7 +332,7 @@ final class AppState: ObservableObject {
         chatBusy = true
         defer { chatBusy = false }
         do {
-            var q = "/api/chat?since=0&limit=80"
+            var q = "/api/chat?since=\(chatSince)&limit=80"
             if channel == "team" {
                 if teamId.isEmpty {
                     // 还没拿到队伍 id 就先问一次，队伍频道必须带 team 参数
@@ -358,10 +364,18 @@ final class AppState: ObservableObject {
             // 服务端已经给了真消息，把本地那条占位的（id = -1）去掉。
             // 内容没变就不动数组，否则 SwiftUI 每 2 秒重排一次，滚动会跳。
             let fresh = list.filter { $0.id != -1 }
+            let reset = (r["reset"] as? Bool) ?? false
+            let last = (r["last"] as? Int) ?? 0
             self.onMain {
-                let same = fresh.count == self.messages.count
-                    && zip(fresh, self.messages).allSatisfy { $0.id == $1.id && $0.text == $1.text }
-                if !same { self.messages = fresh }
+                if reset || self.messages.filter({ $0.id != -1 }).isEmpty {
+                    self.messages = fresh
+                } else {
+                    let known = Set(self.messages.map { $0.id })
+                    let add = fresh.filter { !known.contains($0.id) }
+                    if !add.isEmpty { self.messages.append(contentsOf: add) }
+                }
+                if self.messages.count > 200 { self.messages.removeFirst(self.messages.count - 200) }
+                if last > 0 { self.chatSince = last }
             }
         } catch { }
     }

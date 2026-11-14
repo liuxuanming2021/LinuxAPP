@@ -105,7 +105,7 @@ struct RootView: View {
                                 .background(Color.black.opacity(0.84))
                                 .cornerRadius(14)
                                 .padding(.horizontal, 28)
-                                .padding(.bottom, 14)
+                                .padding(.bottom, 74)
                                 .transition(.opacity)
                         }
                     },
