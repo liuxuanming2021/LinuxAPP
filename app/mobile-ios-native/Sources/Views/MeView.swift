@@ -22,6 +22,7 @@ struct MeView: View {
         }
         .onAppear {
             Task { await store.loadMe() }
+            Task { await store.loadCheckIn() }
             store.loadMyReports()
         }
     }
@@ -98,18 +99,20 @@ struct MeView: View {
                 .background(accent.opacity(0.16))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             VStack(alignment: .leading, spacing: 3) {
-                Text("连续 \(store.checkInDays) 天").font(.system(size: 15, weight: .semibold))
+                Text("连续 \(store.signStreak) 天").font(.system(size: 15, weight: .semibold))
                 Text("每天 0 点重置，随机发金币或点券")
                     .font(.system(size: 12)).foregroundColor(DS.muted)
             }
             Spacer()
             Button { store.signIn() } label: {
-                Text(store.signLabel)
+                Text(store.signedToday ? "已签到" : "签到")
                     .font(.system(size: 14, weight: .semibold))
-                    .padding(.horizontal, 16).padding(.vertical, 9)
-                    .background(accent).foregroundColor(.white)
+                    .padding(.horizontal, 18).padding(.vertical, 9)
+                    .background(store.signedToday ? DS.chip : accent)
+                    .foregroundColor(store.signedToday ? DS.muted : .white)
                     .clipShape(Capsule())
             }
+            .disabled(store.signedToday)
         }
         .padding(14)
         .background(DS.card)

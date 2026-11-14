@@ -89,7 +89,7 @@ struct RootView: View {
 
     private func refreshNow() {
         switch tab {
-        case 0: store.loadMeSoon(); store.loadMyReports()
+        case 0: store.loadMeSoon(); store.loadMyReports(); Task { await store.loadCheckIn() }
         case 1: Task { await store.loadChat() }; store.loadTeam()
         case 2: store.loadTitles()
         case 3: Task { await store.loadOnline() }

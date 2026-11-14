@@ -39,7 +39,8 @@ final class AppState: ObservableObject {
     @Published var expCurrent = 0
     @Published var expNeeded = 0
     @Published var checkInDays = 0
-    @Published var signLabel = "签到"
+    @Published var signedToday = false
+    @Published var signStreak = 0
 
     // 社交
     @Published var channel = "world"      // world / team
@@ -219,18 +220,33 @@ final class AppState: ObservableObject {
         }
     }
 
+    func loadCheckIn() async {
+        guard loggedIn else { return }
+        do {
+            let r = try await APIClient.shared.get("/api/checkin")
+            let info = (r["info"] as? [String: Any]) ?? [:]
+            let claimed = (info["claimed"] as? Bool) ?? false
+            let streak = (info["streak"] as? Int) ?? 0
+            self.onMain {
+                self.signedToday = claimed
+                self.signStreak = streak
+                self.checkInDays = streak
+            }
+        } catch { /* 静默：签到信息拉不到不影响主页面 */ }
+    }
+
     func signIn() {
         Task {
             do {
                 let r = try await APIClient.shared.post("/api/checkin", [:])
                 let ok = (r["ok"] as? Bool) ?? false
                 let msg = (r["message"] as? String) ?? (ok ? "签到成功" : "今天已经签过了")
-                self.onMain {
-                    self.signLabel = msg
-                    self.loadMeAsync()
-                }
+                self.toast(msg)
+                self.onMain { if ok { self.signedToday = true } }
+                await self.loadCheckIn()
+                self.loadMeAsync()
             } catch {
-                self.onMain { self.signLabel = error.localizedDescription }
+                self.toast(error.localizedDescription)
             }
         }
     }
