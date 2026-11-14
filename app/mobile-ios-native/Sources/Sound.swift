@@ -7,6 +7,26 @@ import UIKit
 /// 自己算 PCM 生成 WAV，省得往包里塞音频文件。
 enum ToneWAV {
 
+    /// 一声「气泡」提示音：短促上滑（880 → 1320Hz）+ 快速衰减，总共约 80ms，
+    /// 比之前的两声「叮—咚」短很多，也更像微信那种气泡声。
+    static func bubble(rate: Double = 44100) -> Data {
+        let dur = 0.08
+        let n = Int(rate * dur)
+        var samples = [Int16](repeating: 0, count: n)
+        var phase = 0.0
+        for i in 0..<n {
+            let t = Double(i) / rate
+            let p = t / dur                      // 0 → 1
+            let f = 880.0 + 440.0 * p            // 上滑
+            phase += 2 * Double.pi * f / rate
+            let attack = min(1.0, t / 0.004)
+            let decay = exp(-9.0 * p)            // 掉得干脆
+            let v = sin(phase) * attack * decay * 0.55
+            samples[i] = Int16(max(-1, min(1, v)) * 32767)
+        }
+        return wav(samples: samples, rate: Int(rate))
+    }
+
     static func make(freqs: [Double], duration: Double = 0.13, gap: Double = 0.15, rate: Double = 44100) -> Data {
         let per = Int(rate * duration)
         let gapSamples = Int(rate * gap)
@@ -69,7 +89,7 @@ final class AlertSound {
     func prepare() {
         guard !prepared else { return }
         prepared = true
-        let data = ToneWAV.make(freqs: [880, 1174])
+        let data = ToneWAV.bubble()
         player = try? AVAudioPlayer(data: data)
         player?.volume = 0.85
         player?.prepareToPlay()

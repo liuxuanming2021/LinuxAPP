@@ -19,18 +19,22 @@ extension AppState {
         let body = Fmt.plain(last.text)
 
         let active = UIApplication.shared.applicationState == .active
-        // 前台并且正停在社交页（公屏 / 队伍频道）：只响一声提示音，不弹通知
-        if active && tabIndex == 1 && channel != "manage" {
+
+        // 前台：提示音永远响（哪怕「软件内提醒」关了，也只是不弹通知）
+        if active {
             AlertSound.shared.play()
-            return
+            // 正停在社交页（公屏 / 队伍频道）：只有声音，不弹通知
+            if tabIndex == 1 && channel != "manage" { return }
+            if !notifyInApp { return }
+        } else {
+            if !notifyOut { return }
         }
-        if active && !notifyInApp { return }
-        if !active && !notifyOut { return }
 
         let c = UNMutableNotificationContent()
         c.title = who
         c.body = body
-        c.sound = .default
+        // 前台刚自己响过了，通知再来一声就成双响；后台才用系统提示音
+        c.sound = active ? nil : .default
         c.threadIdentifier = "linuxapp-chat"
         UNUserNotificationCenter.current().add(
             UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil),
