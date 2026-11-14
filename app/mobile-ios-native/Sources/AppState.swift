@@ -379,8 +379,28 @@ final class AppState: ObservableObject {
                 if reset || self.messages.filter({ $0.id != -1 }).isEmpty {
                     self.messages = fresh
                 } else {
-                    let known = Set(self.messages.map { $0.id })
-                    let add = fresh.filter { !known.contains($0.id) }
+                    // 先把我刚发的占位（id = -1）丢掉：服务端已经把它回过来了，
+                    // 留着就会"发一条显示两条"。
+                    let base = self.messages.filter { m in
+                        guard m.id == -1 else { return true }
+                        return !fresh.contains { f in
+                            f.name.caseInsensitiveCompare(m.name) == .orderedSame
+                                && f.text == m.text
+                                && f.channel == m.channel
+                        }
+                    }
+                    let known = Set(base.map { $0.id })
+                    let add = fresh.filter { f in
+                        guard !known.contains(f.id) else { return false }
+                        // 同一个人在同一频道、2 秒内发的同样的内容，只留一条
+                        return !base.contains { b in
+                            b.name.caseInsensitiveCompare(f.name) == .orderedSame
+                                && b.text == f.text
+                                && b.channel == f.channel
+                                && abs(b.time.timeIntervalSince(f.time)) < 2
+                        }
+                    }
+                    self.messages = base
                     if !add.isEmpty {
                         self.messages.append(contentsOf: add)
                         self.remind(add)
