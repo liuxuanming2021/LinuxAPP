@@ -49,13 +49,51 @@ final class AppState: ObservableObject {
     // 主题
     @Published var accent: DS.Accent = .sky
 
+    // 提示条：发一条就把 seq +1，视图监听它弹提示
+    @Published var toastText = ""
+    @Published var toastSeq = 0
+
+    // 头衔
+    @Published var titles: [Map] = []
+    @Published var activeTitle = ""
+    @Published var titleUnlocked = 0
+    @Published var titleTotal = 0
+
+    // 队伍
+    @Published var teamAvailable = false
+    @Published var myTeams: [Map] = []
+    @Published var serverTeams: [Map] = []
+
+    // 管理：玩家 / 举报 / 惩罚 / 假人
+    @Published var searchResults: [Map] = []
+    @Published var detail: Map = [:]
+    @Published var detailName = ""
+    @Published var detailPenalties: Map = [:]
+    @Published var detailReports: [Map] = []
+    @Published var penalties: [Map] = []
+    @Published var adminReports: [Map] = []
+    @Published var reportFilter = "all"
+    @Published var reportTotal = 0
+    @Published var reportHandled = 0
+    @Published var fakes: [Map] = []
+    @Published var fakeSettings: Map = [:]
+    @Published var fakesAvailable = false
+
+    // 玩家侧举报
+    @Published var myReports: [Map] = []
+    @Published var reportsAvailable = false
+
+    // 转账
+    @Published var transferAvailable = false
+
     var canManage: Bool { caps["view"] == true }
     var canMute: Bool { caps["mute"] == true }
     var canBan: Bool { caps["ban"] == true }
+    var isModeratorOnly: Bool { canManage && !canBan }
 
     init() { applyServer() }
 
-    private func onMain(_ work: @escaping () -> Void) {
+    func onMain(_ work: @escaping () -> Void) {
         if Thread.isMainThread { work() } else { DispatchQueue.main.async(execute: work) }
     }
 

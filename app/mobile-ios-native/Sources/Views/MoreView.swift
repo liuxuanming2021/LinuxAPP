@@ -9,12 +9,6 @@ struct MoreView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
-                HStack {
-                    Text("更多").font(.system(size: 22, weight: .bold))
-                    Spacer()
-                }
-                .padding(.top, 6)
-
                 account
                 display
                 theme
@@ -23,6 +17,7 @@ struct MoreView: View {
                 Spacer().frame(height: 90)
             }
             .padding(.horizontal, 16)
+            .padding(.top, 6)
         }
     }
 

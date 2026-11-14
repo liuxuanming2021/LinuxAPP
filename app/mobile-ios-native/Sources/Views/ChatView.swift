@@ -4,6 +4,7 @@ struct ChatView: View {
     @EnvironmentObject var store: AppState
     @State private var tab = 0
     @State private var draft = ""
+    @State private var showTransfer = false
 
     private var accent: Color { store.accent.color }
 
@@ -11,7 +12,7 @@ struct ChatView: View {
         VStack(spacing: 10) {
             header
             if tab == 2 {
-                TeamEmptyView()
+                TeamView()
             } else {
                 messages
                 inputBar
@@ -19,7 +20,10 @@ struct ChatView: View {
             Spacer(minLength: 78)
         }
         .padding(.horizontal, 16)
-        .padding(.top, 8)
+        .padding(.top, 6)
+        .sheet(isPresented: $showTransfer) {
+            TransferSheet().environmentObject(self.store)
+        }
         .onAppear {
             store.channel = "world"
             Task { await store.loadChat() }
@@ -95,10 +99,22 @@ struct ChatView: View {
                 store.send(t)
             } label: {
                 Text("发送").font(.system(size: 15, weight: .semibold))
-                    .padding(.horizontal, 18).padding(.vertical, 12)
+                    .padding(.horizontal, 16).padding(.vertical, 12)
                     .background(accent).foregroundColor(.white)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
+            .buttonStyle(PlainButtonStyle())
+
+            Button {
+                showTransfer = true
+            } label: {
+                Text("转账").font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(DS.text)
+                    .padding(.horizontal, 14).padding(.vertical, 12)
+                    .background(DS.card)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .buttonStyle(PlainButtonStyle())
         }
     }
 

@@ -2,6 +2,8 @@ import SwiftUI
 
 struct MeView: View {
     @EnvironmentObject var store: AppState
+    @State private var reportTarget = ""
+    @State private var reportReason = ""
 
     private var accent: Color { store.accent.color }
 
@@ -16,9 +18,12 @@ struct MeView: View {
                 Spacer().frame(height: 90)
             }
             .padding(.horizontal, 16)
-            .padding(.top, 8)
+            .padding(.top, 6)
         }
-        .onAppear { Task { await store.loadMe() } }
+        .onAppear {
+            Task { await store.loadMe() }
+            store.loadMyReports()
+        }
     }
 
     private var header: some View {
@@ -118,12 +123,54 @@ struct MeView: View {
                 Spacer()
                 Text("管理员会在服务器里收到").font(.system(size: 12)).foregroundColor(DS.muted)
             }
-            Hint("被举报的玩家 ID")
-            Hint("举报理由（刷屏 / 外挂 / 骂人…）")
+            TextField("被举报玩家的游戏 ID", text: $reportTarget)
+                .padding(.horizontal, 14).padding(.vertical, 13)
+                .background(DS.chip)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .autocapitalization(.none)
+                .disableAutocorrection(true)
+            TextField("理由（刷屏 / 外挂 / 骂人…）", text: $reportReason)
+                .padding(.horizontal, 14).padding(.vertical, 13)
+                .background(DS.chip)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            Button {
+                store.submitReport(target: reportTarget, reason: reportReason)
+            } label: {
+                Text("提交举报")
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(accent).foregroundColor(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            if !store.myReports.isEmpty {
+                Divider().background(DS.cardLine)
+                Text("我提交的举报").font(.system(size: 13, weight: .semibold))
+                ForEach(store.myReports.prefix(6).indices, id: \.self) { i in
+                    let r = store.myReports[i]
+                    HStack(alignment: .top, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("#\(r.i("id")) \(r.s("target", "-"))")
+                                .font(.system(size: 13.5, weight: .medium))
+                            Text(r.s("reason")).font(.system(size: 11.5)).foregroundColor(DS.muted)
+                        }
+                        Spacer()
+                        Tag(text: reportState(r), tint: r.b("handled") ? DS.green : DS.muted)
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
         }
         .padding(16)
         .background(DS.card)
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    private func reportState(_ r: Map) -> String {
+        if !r.b("handled") { return "待处理" }
+        return r.s("result") == "reject" ? "已驳回" : "已受理"
     }
 
     private func shortNumber(_ v: Double) -> String {
