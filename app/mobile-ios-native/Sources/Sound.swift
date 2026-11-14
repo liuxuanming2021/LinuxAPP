@@ -48,6 +48,30 @@ enum ToneWAV {
         return wav(samples: samples, rate: Int(rate))
     }
 
+    /// 「叮—咚」：两声，但按气泡声的质感做（每声内部都有一点上滑 + 快速衰减），
+    /// 总长约 0.30 秒：0.11s 第一声 + 0.06s 间隔 + 0.13s 第二声。
+    static func dingdong(rate: Double = 44100) -> Data {
+        let dur1 = 0.11, gap = 0.06, dur2 = 0.13
+        let n1 = Int(rate * dur1), ng = Int(rate * gap), n2 = Int(rate * dur2)
+        var samples = [Int16](repeating: 0, count: n1 + ng + n2)
+        func put(at offset: Int, count: Int, from f0: Double, to f1: Double, amp: Double, decay: Double) {
+            var phase = 0.0
+            for i in 0..<count {
+                let t = Double(i) / rate
+                let p = Double(i) / Double(count)
+                let f = f0 + (f1 - f0) * p
+                phase += 2 * Double.pi * f / rate
+                let attack = min(1.0, t / 0.004)
+                let env = attack * exp(-decay * p)
+                let v = sin(phase) * env * amp
+                samples[offset + i] = Int16(max(-1, min(1, v)) * 32767)
+            }
+        }
+        put(at: 0, count: n1, from: 880, to: 990, amp: 0.55, decay: 6.5)
+        put(at: n1 + ng, count: n2, from: 1174, to: 1265, amp: 0.50, decay: 7.5)
+        return wav(samples: samples, rate: Int(rate))
+    }
+
     /// 静音（后台保活用，音量为 0 时系统可能把播放停掉，所以给一点极小的底噪）
     static func silence(seconds: Double = 1, rate: Double = 44100) -> Data {
         let n = Int(rate * seconds)
@@ -89,7 +113,7 @@ final class AlertSound {
     func prepare() {
         guard !prepared else { return }
         prepared = true
-        let data = ToneWAV.bubble()
+        let data = ToneWAV.dingdong()
         player = try? AVAudioPlayer(data: data)
         player?.volume = 0.85
         player?.prepareToPlay()
