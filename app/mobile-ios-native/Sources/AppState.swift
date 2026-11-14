@@ -104,6 +104,9 @@ final class AppState: ObservableObject {
     @Published var reportHandled = 0
     @Published var fakes: [Map] = []
     @Published var fakeSettings: Map = [:]
+    /// UI 上的即时值：点开关立刻变，不等网络回来，否则看起来"点了没反应"
+    @Published var fakeGamemode = "CREATIVE"
+    @Published var fakeInvuln = false
     @Published var fakesAvailable = false
     @Published var staff: [Map] = []
     @Published var tabIndex = 0

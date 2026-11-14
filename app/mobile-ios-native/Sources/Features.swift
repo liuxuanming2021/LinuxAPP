@@ -177,6 +177,9 @@ extension AppState {
                     self.fakesAvailable = r.b("available")
                     self.fakes = r.a("fakes")
                     self.fakeSettings = r.m("settings")
+                    let gm = self.fakeSettings.s("gamemode", "CREATIVE")
+                    self.fakeGamemode = gm.isEmpty ? "CREATIVE" : gm
+                    self.fakeInvuln = self.fakeSettings.b("invulnerable")
                 }
             } catch { self.toast(NetMsg.zh(error)) }
         }
@@ -318,9 +321,15 @@ extension AppState {
         }
     }
 
-    func setFakeGamemode(_ mode: String) { fakeSet(key: "gamemode", value: mode) }
+    func setFakeInvulnerable(_ on: Bool) {
+        fakeInvuln = on          // 先动 UI
+        fakeSet(key: "invulnerable", value: on ? "true" : "false")
+    }
 
-    func setFakeInvulnerable(_ on: Bool) { fakeSet(key: "invulnerable", value: on ? "true" : "false") }
+    func setFakeGamemode(_ mode: String) {
+        fakeGamemode = mode
+        fakeSet(key: "gamemode", value: mode)
+    }
 
     // MARK: - 管理：控制台 / su
 

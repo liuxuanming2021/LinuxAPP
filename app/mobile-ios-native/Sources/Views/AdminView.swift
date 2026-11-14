@@ -328,7 +328,7 @@ struct AdminView: View {
                 Section(header: Text("配置"),
                         footer: Text("改完会自动把已经召唤出来的假人各重生一次，设置马上生效。")) {
                     Picker(selection: Binding(
-                        get: { store.fakeSettings.s("gamemode", "CREATIVE") },
+                        get: { store.fakeGamemode },
                         set: { store.setFakeGamemode($0) }
                     )) {
                         Text("创造").tag("CREATIVE")
@@ -339,7 +339,7 @@ struct AdminView: View {
                         Text("游戏模式")
                     }
                     Toggle(isOn: Binding(
-                        get: { store.fakeSettings.b("invulnerable") },
+                        get: { store.fakeInvuln },
                         set: { store.setFakeInvulnerable($0) }
                     )) {
                         VStack(alignment: .leading, spacing: 2) {

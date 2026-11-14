@@ -42,7 +42,7 @@ struct FakeDetailSheet: View {
                     toggleRow("模拟刷怪", "按假人周围刷怪（挂机刷怪塔用）", "spawn")
                     toggleRow("只刷黑屋", "只在封闭空间里刷", "covered")
                     Toggle(isOn: Binding(
-                        get: { store.fakeSettings.b("invulnerable") },
+                        get: { store.fakeInvuln },
                         set: { on in
                             store.setFakeInvulnerable(on)
                             // 让这一个也立刻重生，不用回上一页
