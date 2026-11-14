@@ -300,8 +300,20 @@ extension AppState {
                 let r = try await APIClient.shared.post("/api/admin/fake",
                                                         ["op": "set", "key": key, "value": value])
                 self.toast(r.s("message", r.b("ok") ? "已保存" : "改不了"))
-                if r.b("ok") { self.loadFakes() }
+                if r.b("ok") {
+                    // 服务端改的是"新召唤的假人生效"，已经在场的要重生一次才会真的换模式 / 变无敌
+                    await self.respawnAllFakes()
+                    self.loadFakes()
+                }
             } catch { self.toast(error.localizedDescription) }
+        }
+    }
+
+    /// 把所有假人各重生一次（改了游戏模式 / 无敌之后）
+    func respawnAllFakes() async {
+        let names = fakes.compactMap { $0.s("name").isEmpty ? nil : $0.s("name") }
+        for n in names {
+            _ = try? await APIClient.shared.post("/api/admin/fake", ["op": "respawn", "name": n])
         }
     }
 

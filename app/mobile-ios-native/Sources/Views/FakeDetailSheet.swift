@@ -35,11 +35,27 @@ struct FakeDetailSheet: View {
                     .padding(.vertical, 4)
                 }
 
-                Section(header: Text("这个假人")) {
+                Section(header: Text("这个假人"),
+                        footer: Text("「无敌」是全局设置，改了会把这个假人也重生一次，马上生效。")) {
                     toggleRow("启用", "关掉后它从服务器上撤下来，记录留着", "enabled")
                     toggleRow("区块常驻", "让它所在区块一直加载", "load")
                     toggleRow("模拟刷怪", "按假人周围刷怪（挂机刷怪塔用）", "spawn")
                     toggleRow("只刷黑屋", "只在封闭空间里刷", "covered")
+                    Toggle(isOn: Binding(
+                        get: { store.fakeSettings.b("invulnerable") },
+                        set: { on in
+                            store.setFakeInvulnerable(on)
+                            // 让这一个也立刻重生，不用回上一页
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                                store.fakeOp("respawn", name: name)
+                            }
+                        }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("无敌")
+                            Text("全局设置，打不掉血").font(.system(size: 11)).foregroundColor(DS.muted)
+                        }
+                    }
                 }
 
                 Section(header: Text("信息")) {

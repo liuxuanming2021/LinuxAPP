@@ -322,8 +322,9 @@ struct AdminView: View {
             if !store.fakesAvailable {
                 Text("服务器没装假人插件，这一页暂时没用").foregroundColor(DS.muted)
             } else {
-                Section(header: Text("配置")) {
-                    Picker("游戏模式", selection: Binding(
+                Section(header: Text("配置"),
+                        footer: Text("改完会自动把已经召唤出来的假人各重生一次，设置马上生效。")) {
+                    Picker(selection: Binding(
                         get: { store.fakeSettings.s("gamemode", "CREATIVE") },
                         set: { store.setFakeGamemode($0) }
                     )) {
@@ -331,11 +332,19 @@ struct AdminView: View {
                         Text("生存").tag("SURVIVAL")
                         Text("冒险").tag("ADVENTURE")
                         Text("旁观").tag("SPECTATOR")
+                    } label: {
+                        Text("游戏模式")
                     }
-                    Toggle("无敌", isOn: Binding(
+                    Toggle(isOn: Binding(
                         get: { store.fakeSettings.b("invulnerable") },
                         set: { store.setFakeInvulnerable($0) }
-                    ))
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("无敌")
+                            Text("打开后打不掉血（新假人生效，已召唤的自动重生）")
+                                .font(.system(size: 11)).foregroundColor(DS.muted)
+                        }
+                    }
                 }
                 Section(header: Text("假人（\(store.fakes.count)）"),
                         footer: Text("点一个假人进去看详情：坐标、创建信息、它自己的开关，还有重生 / 移除。")) {
