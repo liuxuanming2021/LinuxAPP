@@ -16,9 +16,11 @@ struct LoginView: View {
 
                     ZStack {
                         RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .fill(LinearGradient(gradient: Gradient(colors: [store.accent.color.opacity(0.75), store.accent.color]),
-                                                 startPoint: .topLeading, endPoint: .bottomTrailing))
-                        Text("N").font(.system(size: 44, weight: .bold)).foregroundColor(.white)
+                            .fill(Color.white)
+                        Image("AppMark")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 66, height: 66)
                     }
                     .frame(width: 84, height: 84)
                     .shadow(color: Color.black.opacity(0.15), radius: 14, y: 8)

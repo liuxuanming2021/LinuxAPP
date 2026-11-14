@@ -12,13 +12,13 @@ struct SplashView: View {
             VStack(spacing: 16) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .fill(LinearGradient(gradient: Gradient(colors: [Color(hex: 0x4FA8FF), Color(hex: 0x5B6CFF)]),
-                                             startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .fill(Color.white)
                         .frame(width: 84, height: 84)
-                        .shadow(color: Color(hex: 0x4FA8FF).opacity(0.35), radius: 18, x: 0, y: 8)
-                    Text("N")
-                        .font(.system(size: 42, weight: .bold))
-                        .foregroundColor(.white)
+                        .shadow(color: Color.black.opacity(0.16), radius: 18, x: 0, y: 8)
+                    Image("AppMark")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 66, height: 66)
                 }
                 .scaleEffect(pulse ? 1.04 : 0.98)
                 .animation(Animation.easeInOut(duration: 0.9).repeatForever(autoreverses: true))
