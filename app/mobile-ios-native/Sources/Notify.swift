@@ -19,6 +19,11 @@ extension AppState {
         let body = Fmt.plain(last.text)
 
         let active = UIApplication.shared.applicationState == .active
+        // 前台并且正停在社交页（公屏 / 队伍频道）：只响一声提示音，不弹通知
+        if active && tabIndex == 1 && channel != "manage" {
+            AlertSound.shared.play()
+            return
+        }
         if active && !notifyInApp { return }
         if !active && !notifyOut { return }
 

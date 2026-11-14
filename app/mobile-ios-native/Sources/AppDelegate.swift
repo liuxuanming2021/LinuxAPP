@@ -8,6 +8,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationC
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // 启动就把地址和令牌恢复好，界面首次渲染就能用
         AppState.shared.bootstrap()
+        AppState.shared.warmSounds()
         // 通知：前台也要弹横幅、响系统默认提示音，所以自己当代理
         UNUserNotificationCenter.current().delegate = self
         AppState.shared.askNotifyPermission()
@@ -23,6 +24,18 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationC
         } else {
             completionHandler([.alert, .sound])
         }
+    }
+
+    func applicationDidEnterBackground(_ application: UIApplication) {
+        // 开了「软件外提醒」就用一条静音音频把 App 吊在后台，定时器继续轮询，
+        // 来消息才能及时发系统通知
+        if AppState.shared.loggedIn && AppState.shared.notifyOut {
+            BackgroundKeeper.shared.start()
+        }
+    }
+
+    func applicationWillEnterForeground(_ application: UIApplication) {
+        BackgroundKeeper.shared.stop()
     }
 
     func application(_ application: UIApplication,

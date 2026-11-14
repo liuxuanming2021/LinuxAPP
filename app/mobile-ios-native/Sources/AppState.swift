@@ -232,6 +232,10 @@ final class AppState: ObservableObject {
         }
     }
 
+    func warmSounds() {
+        AlertSound.shared.prepare()
+    }
+
     func restore() async {
         defer { onMain { self.booting = false } }
         guard let token = UserDefaults.standard.string(forKey: "token") else { return }
