@@ -142,10 +142,11 @@ extension AppState {
 
     // MARK: - 管理：举报
 
-    func loadAdminReports(_ filter: String) {
+    func loadAdminReports(_ filter: String = "") {
+        let f = filter.isEmpty ? self.reportFilter : filter
         Task {
             do {
-                let r = try await APIClient.shared.get("/api/admin/reports?filter=\(self.esc(filter))")
+                let r = try await APIClient.shared.get("/api/admin/reports?filter=\(self.esc(f))")
                 self.onMain {
                     self.adminReports = r.a("reports")
                     self.reportTotal = r.i("count")

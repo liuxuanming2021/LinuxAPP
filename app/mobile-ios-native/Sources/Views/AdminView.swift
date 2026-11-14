@@ -22,7 +22,11 @@ struct AdminView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("", selection: $tab) {
+            Picker("", selection: Binding(get: { tab }, set: { v in
+                tab = v
+                store.adminTab = v
+                range()
+            })) {
                 ForEach(Array(tabs.enumerated()), id: \.offset) { item in
                     Text(item.element).tag(item.offset)
                 }
@@ -34,7 +38,6 @@ struct AdminView: View {
             content
         }
         .onAppear { range(); store.adminTab = tab }
-        .onChange(of: tab) { _ in store.adminTab = tab; range() }
         .sheet(item: Binding(get: { detailName.map { NameBox(id: $0) } },
                              set: { detailName = $0?.id })) { box in
             PlayerDetailSheet(name: box.id).environmentObject(self.store)

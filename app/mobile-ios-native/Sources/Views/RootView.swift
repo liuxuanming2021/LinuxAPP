@@ -15,7 +15,11 @@ struct RootView: View {
             if store.booting {
                 SplashView()
             } else if store.loggedIn {
-                TabView(selection: $tab) {
+                TabView(selection: Binding(get: { tab }, set: { v in
+                tab = v
+                store.tabIndex = v
+                refreshTab(v)
+            })) {
                     NavigationView {
                         MeView()
                             .navigationBarTitle(Text("我的数据"), displayMode: .inline)
@@ -79,7 +83,6 @@ struct RootView: View {
                     .tag(4)
                 }
                 .accentColor(store.accent.color)
-                .onChange(of: tab) { v in store.tabIndex = v; refreshTab(v) }
                 .onReceive(store.$toastSeq) { seq in
                     if seq > 0 { showToast() }
                 }
@@ -124,7 +127,7 @@ struct RootView: View {
         switch v {
         case 0:
             Task { await store.loadMe() }
-            store.loadCheckIn()
+            Task { await store.loadCheckIn() }
             store.loadMyReports()
         case 1:
             store.loadTeam()
