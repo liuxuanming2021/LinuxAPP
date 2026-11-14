@@ -14,10 +14,12 @@ struct AdminView: View {
     @State private var fakeName: String? = nil
     @State private var cmd = ""
 
+    /// 页签按权限给：假人要 fake 权限，控制台要 su（只有服主）。协管只看到前四个。
     private var tabs: [String] {
-        store.canBan
-            ? ["在线", "玩家", "举报", "惩罚", "假人", "控制台"]
-            : ["在线", "玩家", "举报", "惩罚", "控制台"]
+        var list = ["在线", "玩家", "举报", "惩罚"]
+        if store.canFake { list.append("假人") }
+        if store.canSu { list.append("控制台") }
+        return list
     }
 
     var body: some View {

@@ -1,6 +1,10 @@
 /* Nalxer App 1.3.0 —— 浅色为默认，深色可切 */
 :root {
+  --safe-t: 0px;
+  --safe-b: 0px;
+  --safe-t: constant(safe-area-inset-top);
   --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: constant(safe-area-inset-bottom);
   --safe-b: env(safe-area-inset-bottom, 0px);
   --radius: 16px;
   --tab-h: 58px;
@@ -66,6 +70,7 @@ a { color: var(--accent); }
 
 /* ── 登录 ────────────────────────────────────────── */
 .login-wrap {
+  min-height: 100vh;
   min-height: 100dvh;
   display: flex; flex-direction: column; justify-content: center;
   padding: calc(28px + var(--safe-t)) 22px calc(28px + var(--safe-b));
@@ -73,11 +78,10 @@ a { color: var(--accent); }
 .brand { text-align: center; margin-bottom: 26px; }
 .brand-mark {
   width: 74px; height: 74px; margin: 0 auto 12px;
-  border-radius: 20px;
-  background: linear-gradient(160deg, #4cc2ff, #7c6cff);
-  display: flex; align-items: center; justify-content: center;
-  color: #fff; font-size: 38px; font-weight: 800;
-  box-shadow: 0 10px 26px rgba(60, 120, 240, 0.30);
+  border-radius: 18px;
+  display: block; object-fit: cover;
+  background: #fff;
+  box-shadow: 0 10px 26px rgba(60, 120, 240, 0.22);
 }
 .brand h1 { margin: 0; font-size: 24px; letter-spacing: 0.5px; }
 .brand p { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
@@ -118,7 +122,7 @@ a { color: var(--accent); }
 .btn-mini { padding: 7px 11px; font-size: 12.5px; border-radius: 10px; font-weight: 600; flex: 0 0 auto; }
 
 /* ── 框架 ────────────────────────────────────────── */
-#app { min-height: 100dvh; }
+#app { min-height: 100vh; min-height: 100dvh; }
 .topbar {
   position: sticky; top: 0; z-index: 30;
   display: flex; align-items: center; justify-content: space-between;
@@ -263,11 +267,22 @@ a { color: var(--accent); }
 .msg.mine .bubble { background: var(--accent); color: var(--accent-text); border-color: transparent; }
 .msg.console .bubble { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
 .chat-input-bar {
-  position: sticky; bottom: calc(var(--tab-h) + var(--safe-b));
+  position: -webkit-sticky;
+  position: sticky;
+  bottom: calc(var(--tab-h) + var(--safe-b));
   display: flex; gap: 8px; align-items: center;
   padding: 10px 0 6px;
   background: linear-gradient(180deg, transparent, var(--bg) 45%);
 }
+/* 老系统（iOS 12）里 sticky 的 bottom 不生效，改成固定定位钉在底栏上方 */
+html.no-flex-gap .chat-input-bar {
+  position: fixed;
+  left: 14px; right: 14px;
+  bottom: calc(var(--tab-h) + var(--safe-b) + 6px);
+  z-index: 24;
+  padding-bottom: 8px;
+}
+html.no-flex-gap #page-chat { padding-bottom: calc(var(--tab-h) + var(--safe-b) + 92px); }
 /* 发送 / 转账 两颗按钮同宽同高 */
 .chat-input-bar .btn {
   flex: 0 0 auto;
@@ -425,11 +440,11 @@ a { color: var(--accent); }
 
 /* 二次身份验证：挡住整页，只留这一屏 */
 #verify { padding-bottom: 40px; }
-#verify .brand-mark { font-size: 26px; }
+#verify .brand-mark { width: 56px; height: 56px; }
 
 /* ── 弹窗（身份验证 / su） ───────────────────────── */
 .modal {
-  position: fixed; inset: 0; z-index: 80;
+  position: fixed; top: 0; right: 0; bottom: 0; left: 0; inset: 0; z-index: 80;
   display: flex; align-items: center; justify-content: center;
   padding: 18px;
   background: rgba(9, 14, 22, 0.52);
@@ -816,7 +831,7 @@ body[data-skin="ios"] #cmd-groups .seg-btn { flex: 0 0 auto; white-space: nowrap
 
 /* ── 开屏动画 ────────────────────────────────────── */
 .splash {
-  position: fixed; inset: 0; z-index: 300;
+  position: fixed; top: 0; right: 0; bottom: 0; left: 0; inset: 0; z-index: 300;
   display: flex; align-items: center; justify-content: center;
   background:
     radial-gradient(120% 80% at 50% 0%, var(--accent-soft), transparent 60%),
@@ -826,11 +841,10 @@ body[data-skin="ios"] #cmd-groups .seg-btn { flex: 0 0 auto; white-space: nowrap
 .splash.hide { opacity: 0; transform: scale(1.03); pointer-events: none; }
 .splash-inner { display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .splash-mark {
-  width: 84px; height: 84px; border-radius: 26px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 42px; font-weight: 800; color: #fff;
-  background: linear-gradient(160deg, var(--accent), #7fd0ff);
-  box-shadow: 0 14px 34px var(--accent-soft);
+  width: 84px; height: 84px; border-radius: 22px;
+  display: block; object-fit: cover;
+  background: #fff;
+  box-shadow: 0 14px 34px rgba(17, 24, 39, .18);
   animation: splashMark .62s cubic-bezier(.2,.9,.25,1.05) both;
 }
 .splash-name {
@@ -1404,3 +1418,16 @@ body[data-skin="miuix"] #f-team-name {
 
 /* 登录页「测试连接」的输出：保留换行，别挤成一行 */
 #diag-box { white-space: pre-line; }
+
+/* 队伍设置里被前置条件挡住的开关：整行变淡，开关不可点 */
+.set-row.is-disabled { opacity: .55; }
+.set-row.is-disabled .switch { cursor: not-allowed; }
+
+/* 多服务器：配置行 / 顶部切换按钮 */
+.topbar-actions { display: flex; align-items: center; gap: 8px; }
+.srv-row { border-bottom: 1px solid var(--card-b); padding: 10px 0; }
+.srv-row:last-child { border-bottom: 0; }
+.srv-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 13px; }
+.srv-row input { width: 100%; box-sizing: border-box; margin-top: 6px; padding: 10px 12px; border-radius: 12px;
+  border: 1px solid var(--card-b); background: var(--bg-soft); color: var(--text); font-size: 14px; }
+.srv-pick { width: 100%; }

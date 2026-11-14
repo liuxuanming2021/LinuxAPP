@@ -148,6 +148,8 @@ final class AppState: ObservableObject {
     var canManage: Bool { caps["view"] == true }
     var canMute: Bool { caps["mute"] == true }
     var canBan: Bool { caps["ban"] == true }
+    var canFake: Bool { caps["fake"] == true }
+    var canSu: Bool { caps["su"] == true }
     var isModeratorOnly: Bool { canManage && !canBan }
 
     init() {

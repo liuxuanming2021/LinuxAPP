@@ -1,14 +1,15 @@
-/* Nalxer App 1.3.1 —— 我的 / 聊天 / 队伍 / 头衔 / 命令 / 更多 */
+/* LinuxAPP 1.3.1 —— 我的 / 聊天 / 队伍 / 头衔 / 命令 / 更多 */
 (function () {
   'use strict';
 
-  var DEFAULT_SERVER = 'http://aam.rainplay.cn:49282';
+  var DEFAULT_SERVER = 'https://api.nalxer.top:49283';
 
   var LS = {
     server: 'nalxer.server',
     token: 'nalxer.token',
     name: 'nalxer.name',
     admin: 'nalxer.admin',
+    role: 'nalxer.role',
     expire: 'nalxer.expire',
     theme: 'nalxer.theme',
     skin: 'nalxer.skin',
@@ -16,7 +17,10 @@
     navfloat: 'nalxer.navfloat',
     suon: 'nalxer.suon',
     notify: 'nalxer.notify',
-    noticeOut: 'nalxer.notice.out'
+    noticeOut: 'nalxer.notice.out',
+    servers: 'nalxer.servers',
+    serverIdx: 'nalxer.server.idx',
+    multi: 'nalxer.multi'
   };
 
   var PAGE_TITLE = {
@@ -25,7 +29,8 @@
     title: ['头衔', 'LinuxTitle'],
     admin: ['服务器管理', '玩家 / 举报 / 惩罚 / 假人 / 命令'],
     more: ['更多', '设置 / 接口地址 / 关于'],
-    pdetail: ['玩家详情', '']
+    pdetail: ['玩家详情', ''],
+    servers: ['软件链接配置', '多服务器（Beta）']
   };
 
   var state = {
@@ -33,6 +38,9 @@
     token: '',
     name: '',
     admin: false,
+    role: 'player',
+    canManage: false,
+    moderatorOnly: false,
     page: 'me',
     lastAdminTab: 'player',
     me: null,
@@ -75,6 +83,85 @@
     if (!s) return DEFAULT_SERVER;
     if (!/^https?:\/\//i.test(s)) s = 'http://' + s;
     return s.replace(/\/+$/, '');
+  }
+
+  // ── 多服务器（Beta） ──────────────────────────────────
+  function serversLoad() {
+    try {
+      var a = JSON.parse(localStorage.getItem(LS.servers) || '[]');
+      if (!Array.isArray(a)) a = [];
+      while (a.length < 5) a.push({ name: '', url: '', token: '', player: '', role: '' });
+      return a.slice(0, 5);
+    } catch (e) {
+      var z = [];
+      for (var i = 0; i < 5; i++) z.push({ name: '', url: '', token: '', player: '', role: '' });
+      return z;
+    }
+  }
+
+  function serversSave(list) {
+    localStorage.setItem(LS.servers, JSON.stringify(list.slice(0, 5)));
+  }
+
+  function multiOn() { return localStorage.getItem(LS.multi) === '1'; }
+  function setMultiOn(v) { localStorage.setItem(LS.multi, v ? '1' : '0'); }
+  function activeIdx() {
+    var i = Number(localStorage.getItem(LS.serverIdx) || 0);
+    return (isFinite(i) && i >= 0 && i < 5) ? i : 0;
+  }
+
+  /** 把当前这台服务器的登录状态写回它的槽位。 */
+  function slotSync() {
+    var list = serversLoad();
+    var i = activeIdx();
+    var one = list[i] || {};
+    one.url = state.server;
+    one.token = state.token || '';
+    one.player = state.name || '';
+    one.role = state.role || 'player';
+    if (!one.name) one.name = String(state.server || '').replace(/^https?:\/\//, '');
+    list[i] = one;
+    serversSave(list);
+    return list;
+  }
+
+  function validSlots() {
+    return serversLoad().map(function (s, i) { return { s: s, i: i }; })
+      .filter(function (x) { return x.s && x.s.url; });
+  }
+
+  function switchServer(i) {
+    slotSync();
+    var list = serversLoad();
+    var target = list[i];
+    if (!target || !target.url) { toast('这台服务器还没配置地址'); return; }
+    localStorage.setItem(LS.serverIdx, String(i));
+    state.server = normServer(target.url);
+    state.token = target.token || '';
+    state.name = target.player || '';
+    state.role = target.role || 'player';
+    state.admin = state.role === 'admin' || state.role === 'owner' || state.role === 'su';
+    // 每台服务器的数据互不串：清干净再拉
+    state.chatMsgs = [];
+    state.chatLast = 0;
+    state.chatRenderedMax = 0;
+    state.notifiedMax = 0;
+    state.myTeams = [];
+    state.reports = [];
+    persist();
+    cryptoInit();
+    renderServersUi();
+    if (!state.token) {
+      showLogin();
+      toast('这台服务器需要重新登录');
+      return;
+    }
+    switchPage('me');
+    loadMe();
+    if (typeof loadStatus === 'function') loadStatus();
+    loadChat(true);
+    loadTeam();
+    toast('已切到「' + (target.name || target.url) + '」');
   }
 
   function toast(msg) {
@@ -221,44 +308,207 @@
 
   // ── 请求 ─────────────────────────────────────────────
 
+
+  // ── 端到端附加加密（TLS 之上再套一层 AES-GCM）────────────
+  var CRYPTO_SESSION = { ready: false, id: null, key: null };
+
+  function b64FromBytes(bytes) {
+    var bin = '';
+    for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  }
+
+  function bytesFromB64(b64) {
+    var bin = atob(b64);
+    var out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  function cryptoUsable() {
+    // 不再要求 https：App 的页面来自 localhost / capacitor://，属于安全上下文，
+    // 即使接口是 http 也能用 WebCrypto 做应用层加密（服务器端 require-encryption 会强制）
+    return typeof crypto !== 'undefined' && !!crypto.subtle;
+  }
+
+  var CRYPTO_TRIED = false;
+  var CRYPTO_PENDING = null;
+  var CRYPTO_WARNED = false;
+  var SERVER_INFO = { version: '', enc: null };
+  var cryptoLastError = '';
+
+  function cryptoInit() {
+    CRYPTO_SESSION.ready = false;
+    CRYPTO_TRIED = true;
+    cryptoLastError = '';
+    if (!cryptoUsable()) { cryptoLastError = '这个 WebView 不支持 WebCrypto（crypto.subtle 不可用）'; return Promise.resolve(false); }
+    var base = state.server;
+    // 每次连接现生成一对 RSA 密钥（只留在内存里），断线重连就是全新密钥。
+    var pair = crypto.subtle.generateKey(
+      { name: 'RSA-OAEP', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+      false, ['encrypt', 'decrypt']);
+    return pair.then(function (kp) {
+      return crypto.subtle.exportKey('spki', kp.publicKey).then(function (der) {
+        var id = '';
+        var rnd = new Uint8Array(8);
+        crypto.getRandomValues(rnd);
+        for (var i = 0; i < rnd.length; i++) id += ('0' + rnd[i].toString(16)).slice(-2);
+        return fetch(base + '/api/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: id, pub: b64FromBytes(new Uint8Array(der)) })
+        }).then(function (r2) { return r2.text(); }).then(function (t2) {
+          var d = null;
+          try { d = JSON.parse(t2); } catch (e) { d = null; }
+          if (!d || !d.ok || !d.key) { cryptoLastError = '服务端没有返回会话密钥'; return false; }
+          return crypto.subtle.decrypt({ name: 'RSA-OAEP' }, kp.privateKey, bytesFromB64(d.key).buffer)
+            .then(function (raw) {
+              return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'])
+                .then(function (key) {
+                  CRYPTO_SESSION.id = id;
+                  CRYPTO_SESSION.key = key;
+                  CRYPTO_SESSION.ready = true;
+                  return true;
+                });
+            });
+        });
+      });
+    })
+      .catch(function (e) {
+        cryptoLastError = '握手失败：' + ((e && e.message) ? e.message : e);
+        return false;
+      });
+  }
+
+  function cryptoEncrypt(text) {
+    var iv = new Uint8Array(12);
+    crypto.getRandomValues(iv);
+    return crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, CRYPTO_SESSION.key, new TextEncoder().encode(text))
+      .then(function (ct) {
+        var all = new Uint8Array(iv.length + ct.byteLength);
+        all.set(iv, 0);
+        all.set(new Uint8Array(ct), iv.length);
+        return b64FromBytes(all);
+      });
+  }
+
+  function cryptoDecrypt(b64) {
+    var raw = bytesFromB64(b64);
+    var iv = raw.slice(0, 12);
+    var ct = raw.slice(12);
+    return crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, CRYPTO_SESSION.key, ct)
+      .then(function (pt) { return new TextDecoder().decode(pt); });
+  }
+
+  function ensureCrypto() {
+    if (CRYPTO_SESSION.ready) return Promise.resolve(true);
+    if (CRYPTO_PENDING) return CRYPTO_PENDING;
+    CRYPTO_PENDING = cryptoInit().then(function (ok) {
+      CRYPTO_PENDING = null;
+      renderCryptoStatus();
+      return ok;
+    }, function () {
+      CRYPTO_PENDING = null;
+      return false;
+    });
+    return CRYPTO_PENDING;
+  }
+
   function api(path, opts) {
+    // 登录前不加密（也不握手）：只有拿到 token 之后才走加密通道
+    if (!state.token) return apiOnce(path, opts);
+    return ensureCrypto().then(function () {
+      return apiOnce(path, opts);
+    }).catch(function (err) {
+      // 服务端重启 / 会话过期：重新握手，重试一次（不要把这个当成业务错误弹给用户）
+      if (err && (err.status === 409 || err.code === 'session_expired' || (err.status === 426 && CRYPTO_TRIED))) {
+        CRYPTO_TRIED = false;
+        CRYPTO_SESSION.ready = false;
+        return ensureCrypto().then(function () {
+          return apiOnce(path, opts);
+        });
+      }
+      if (err && err.status === 426 && !CRYPTO_WARNED) {
+        CRYPTO_WARNED = true;
+        try {
+          toast('这台设备没能建立加密通道，已改用明文连接' + (cryptoLastError ? '（' + cryptoLastError + '）' : ''));
+        } catch (e0) {}
+      }
+      throw err;
+    });
+  }
+
+  function apiOnce(path, opts) {
     opts = opts || {};
     var url = state.server + path;
     var headers = { 'Accept': 'application/json' };
     if (opts.body != null) headers['Content-Type'] = 'application/json';
     if (state.token) headers['Authorization'] = 'Bearer ' + state.token;
+    var useEnc = CRYPTO_SESSION.ready && !!CRYPTO_SESSION.id;
+    if (!useEnc && CRYPTO_TRIED) headers['X-No-Enc'] = '1';
+    if (useEnc) {
+      headers['X-Session'] = CRYPTO_SESSION.id;
+      headers['X-Enc'] = '1';
+    }
 
     var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
     var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 10000) : 0;
 
-    return fetch(url, {
-      method: opts.method || (opts.body != null ? 'POST' : 'GET'),
-      headers: headers,
-      body: opts.body != null ? JSON.stringify(opts.body) : undefined,
-      signal: ctrl ? ctrl.signal : undefined
-    }).then(function (r) {
-      if (timer) clearTimeout(timer);
-      return r.text().then(function (txt) {
-        var data = null;
-        try { data = txt ? JSON.parse(txt) : {}; } catch (e) { data = { ok: false, message: '服务器返回的不是 JSON' }; }
-        if (r.status === 401) {
-          if (!opts.quiet) { logout(true); }
-          var e401 = new Error((data && data.message) || '登录已过期，请重新登录');
-          e401.status = 401;
-          throw e401;
-        }
-        return { status: r.status, data: data };
+    var bodyPromise;
+    if (opts.body != null) {
+      var raw = JSON.stringify(opts.body);
+      bodyPromise = useEnc ? cryptoEncrypt(raw) : Promise.resolve(raw);
+    } else {
+      bodyPromise = Promise.resolve(null);
+    }
+
+    return bodyPromise.then(function (payload) {
+      return fetch(url, {
+        method: opts.method || (opts.body != null ? 'POST' : 'GET'),
+        headers: headers,
+        body: payload == null ? undefined : payload,
+        signal: ctrl ? ctrl.signal : undefined
+      }).then(function (r) {
+        if (timer) clearTimeout(timer);
+        var encResp = r.headers.get('X-Enc') === '1';
+        return r.text().then(function (txt) {
+          var after = encResp && txt ? cryptoDecrypt(txt) : Promise.resolve(txt);
+          return after.then(function (plain) {
+            var data = null;
+            try { data = plain ? JSON.parse(plain) : {}; } catch (e) { data = { ok: false, message: '服务器返回的不是 JSON' }; }
+            if (r.status === 409 && data && data.code === 'session_expired') {
+              var e409 = new Error(data.message || '加密会话失效了，正在重新连接');
+              e409.status = 409;
+              e409.code = 'session_expired';
+              throw e409;
+            }
+            if (r.status === 426) {
+              var why = cryptoLastError ? ('（本机握手失败：' + cryptoLastError + '）') : '';
+              var e426 = new Error(((data && data.message) || '这个接口只接受加密请求') + why);
+              e426.status = 426;
+              throw e426;
+            }
+            if (r.status === 401) {
+              if (data && data.message) { state.kicked = data.message; }
+              else if (data && data.code === 'session_kicked') { state.kicked = '这个账号已在另一台设备登录'; }
+              if (!opts.quiet) { logout(true); }
+              var e401 = new Error((data && data.message) || '登录已过期，请重新登录');
+              e401.status = 401;
+              throw e401;
+            }
+            return { status: r.status, data: data };
+          });
+        });
       });
     }).catch(function (err) {
       if (timer) clearTimeout(timer);
       if (err && err.name === 'AbortError') {
         throw new Error('连接超时：' + url + '（10 秒没响应，多半是端口没放行或被防火墙挡了）');
       }
-      // 服务器已经说清楚原因了（密码不对 / 要验证 / 没权限），原样抛给界面
       if (err && (err.status || err.needVerify)) throw err;
-      if (err && err.message && err.message.indexOf('登录已过期') >= 0) throw err;
-      if (err && err.message && err.message.indexOf('连接超时') >= 0) throw err;
-      throw new Error('连不上 ' + url + ' —— 看这几点：服务器开着吗 / 云服务器安全组放行这个端口了吗 / plugins 里有没有 NalxerApp');
+      if (err && err.message && (err.message.indexOf('登录已过期') >= 0 || err.message.indexOf('连接超时') >= 0 || err.message.indexOf('加密通道') >= 0)) throw err;
+      if (err && err.message && err.message.indexOf('解密') >= 0) throw err;
+      throw new Error('连不上 ' + url + ' —— 看这几点：服务器开着吗 / 防火墙放行这个端口了吗 / 地址写得对吗（默认 http://IP:49282）');
     });
   }
 
@@ -269,6 +519,7 @@
     localStorage.setItem(LS.token, state.token);
     localStorage.setItem(LS.name, state.name);
     localStorage.setItem(LS.admin, state.admin ? '1' : '0');
+    localStorage.setItem(LS.role, state.role || 'player');
   }
 
   /** 登录页的「测试连接」：只打 /api/health，把原始错误原样展示。 */
@@ -292,7 +543,15 @@
       .then(function (res) {
         var v = '';
         try { v = JSON.parse(res.body).version || ''; } catch (e) {}
-        box.textContent = '连接成功：HTTP ' + res.code + (v ? '，服务端版本 ' + v : '') + NL + '地址 ' + url;
+        box.textContent = '连接成功：HTTP ' + res.code + (v ? '，服务端版本 ' + v : '') + NL + '地址 ' + url + NL + '正在测试加密通道…';
+        var keep = state.server;
+        state.server = url;
+        CRYPTO_TRIED = false;
+        CRYPTO_SESSION.ready = false;
+        return ensureCrypto().then(function (ok) {
+          state.server = keep;
+          box.textContent += NL + (ok ? '加密通道：已建立（AES-256-GCM）' : ('加密通道：失败 — ' + (cryptoLastError || '未知原因')));
+        });
       })
       .catch(function (e) {
         if (timer) clearTimeout(timer);
@@ -323,19 +582,30 @@
     btn.disabled = true;
     btn.textContent = '登录中…';
 
-    api('/api/login', { body: { name: name, password: pass }, quiet: true }).then(function (r) {
+    var body = { name: name, password: pass };
+    api('/api/login', { body: body, quiet: true }).then(function (r) {
       var d = r.data || {};
-      if (!d.ok) throw new Error(d.message || '登录失败');
+      if (!d.ok) {
+        // 单设备登录：这里不做「踢掉另一台」，只能等那台退出，或让管理员用
+        // /nalxerapp logout <名字> 释放
+        var msg = d.message || '登录失败';
+        if (d.retryAfter) msg += '（' + d.retryAfter + ' 秒后再试）';
+        if (d.remaining != null) msg += String.fromCharCode(10) + '还能再试 ' + d.remaining + ' 次';
+        throw new Error(msg);
+      }
       state.token = d.token || '';
       state.name = d.name || name;
       state.admin = !!d.admin;
+      applyRole(d.role || (d.owner ? 'owner' : (d.su ? 'su' : (d.admin ? 'admin' : 'player'))), d.caps);
       state.verified = d.verified === true;
       state.needVerify = false;
       state.su = !!d.su;
       state.owner = !!d.owner;
       applyOwnerPanels();
       persist();
+      if (multiOn()) { slotSync(); renderServersUi(); }
       enterApp();
+      toast(d.welcome || ('登录成功，欢迎回来，' + state.name));
     }).catch(function (e) {
       err.textContent = e.message;
       err.classList.remove('hidden');
@@ -361,8 +631,24 @@
   }
 
   function logout(silent) {
+    if (!silent && state.token && state.server) {
+      // 告诉服务端「我退了」，另一台设备才能立刻登录。
+      // 这里用最朴素的 fetch（不走加密通道、不用 api()）：
+      // 退出时可能还没握手，走 api() 会被 426 拦下，令牌就永远释放不了。
+      try {
+        var base = String(state.server).replace(/\/+$/, '');
+        fetch(base + '/api/logout', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + state.token, 'Content-Type': 'application/json' },
+          body: '{}',
+          cache: 'no-store',
+          keepalive: true
+        }).catch(function () {});
+      } catch (e) { /* 忽略：本地照样退出 */ }
+    }
     state.token = '';
     state.name = '';
+    state.takeover = false;
     state.admin = false;
     state.me = null;
     state.chatMsgs = [];
@@ -370,6 +656,8 @@
     localStorage.removeItem(LS.token);
     localStorage.removeItem(LS.name);
     localStorage.removeItem(LS.admin);
+    localStorage.removeItem(LS.role);
+    state.role = 'player'; state.canManage = false; state.moderatorOnly = false;
     // 下次登录 / 重新进软件都从「我的」开始，不接着停在退出前那一页
     state.page = 'me';
     state.adminTab = 'online';
@@ -379,7 +667,14 @@
     $('app').classList.add('hidden');
     $('login').classList.remove('hidden');
     setTimeout(hideSplash, 260);
-    if (!silent) toast('已退出登录');
+    if (state.kicked) {
+      var box = $('login-err');
+      if (box) { box.textContent = state.kicked; box.classList.remove('hidden'); }
+      toast(state.kicked);
+      state.kicked = '';
+    } else if (!silent) {
+      toast('已退出登录');
+    }
   }
 
   /** 设置页里那块「管理」只对服主显示；普通管理员连入口都看不见。 */
@@ -390,12 +685,65 @@
     if (status) status.classList.toggle('hidden', !state.owner);
   }
 
+  /** 把角色落到 state，并同步底栏「管理」入口与子标签的可见性 */
+  /** 「管理权限」这一行只回答有 / 无；协管单独标出来，别和「玩家身份」混在一起 */
+  function paintAdminLabel() {
+    var el = $('set-admin');
+    if (!el) return;
+    if (!state.canManage) { el.textContent = '无'; return; }
+    el.textContent = state.moderatorOnly ? '有（协管）' : '有';
+  }
+
+  function renderCryptoStatus() {
+    var el = $('set-enc');
+    if (el) {
+      if (CRYPTO_SESSION.ready) el.textContent = '已加密（AES-256-GCM）';
+      else if (CRYPTO_TRIED) el.textContent = '未加密（明文）' + (cryptoLastError ? '·' + cryptoLastError : '');
+      else el.textContent = '检查中…';
+    }
+    var ver = $('set-server-ver');
+    if (ver) {
+      ver.textContent = SERVER_INFO.version ? ('LinuxAPP ' + SERVER_INFO.version) : 'LinuxAPP —';
+    }
+  }
+
+  function applyRole(role, caps) {
+    state.role = role || 'player';
+    if (caps && typeof caps === 'object') state.caps = caps;
+    var c = state.caps || {};
+    // 管理页给不给、里面能点什么，全看服务端发下来的能力表，不按角色猜
+    state.canManage = c.view === true;
+    state.moderatorOnly = state.canManage && state.role !== 'owner' && state.role !== 'su' && state.role !== 'admin';
+
+    show('tab-admin', state.canManage);
+    var card = $('admin-card');
+    if (card) card.classList.toggle('hidden', !state.canManage);
+
+    var fakeTab = $('admin-tabs') ? $('admin-tabs').querySelector('[data-admin="fake"]') : null;
+    var cmdTab = $('admin-tabs') ? $('admin-tabs').querySelector('[data-admin="cmd"]') : null;
+    var penTab = $('admin-tabs') ? $('admin-tabs').querySelector('[data-admin="penalty"]') : null;
+    if (fakeTab) fakeTab.classList.toggle('hidden', c.fake !== true);
+    if (cmdTab) cmdTab.classList.toggle('hidden', c.su !== true);
+    if (penTab) penTab.classList.toggle('hidden', !(c.mute === true || c.ban === true));
+    var note = $('mod-note');
+    if (note) {
+      var bits = [];
+      if (c.mute === true) bits.push('禁言 / 解除禁言' + (state.moderatorOnly ? '（一次最长 30 天）' : ''));
+      if (c.ban === true) bits.push('封禁类处罚');
+      if (c.fake === true) bits.push('假人管理');
+      note.textContent = '你的管理权限：看在线与玩家详情、处理举报' +
+        (bits.length ? '、' + bits.join('、') : '') + '。' +
+        (c.config === true ? '' : '插件配置只有服主能改。');
+      note.classList.toggle('hidden', !state.canManage || state.role === 'owner' || c.ban === true);
+    }
+    paintAdminLabel();
+    return state.role;
+  }
+
   function enterApp() {
     $('login').classList.add('hidden');
     $('app').classList.remove('hidden');
-    // 底栏现在只有「管理」一个入口，命令是管理页里的子标签
-    show('tab-admin', state.admin);
-    $('admin-card').classList.toggle('hidden', !state.admin);
+    applyRole(state.role);
     $('status-card').classList.toggle('hidden', !state.owner);
     // 设置页的「管理」整块（su 开关 + Linux 系插件 + 联动状态）只给服主看，
     // 普通管理员只保留底栏「管理」页
@@ -403,7 +751,6 @@
     $('f-server-edit').value = state.server;
     $('set-name').textContent = state.name;
     $('set-server').textContent = state.server.replace(/^https?:\/\//, '');
-    $('set-admin').textContent = state.admin ? '有' : '否';
     state.page = 'me';
     switchPage('me');
     loadMe();
@@ -418,7 +765,7 @@
   var PAGE_IDS = {
     me: 'page-me', chat: 'page-chat',
     title: 'page-titles', admin: 'page-admin', more: 'page-more',
-    pdetail: 'page-pdetail'
+    servers: 'page-servers', pdetail: 'page-pdetail'
   };
 
   // 底栏顺序，用来决定切页时从左边还是右边滑进来
@@ -427,7 +774,11 @@
   function switchPage(page) {
     if (!PAGE_IDS[page]) page = 'me';
     // 管理 / 命令只有管理员能进
-    if ((page === 'cmd' || page === 'admin') && !state.admin) page = 'more';
+    if ((page === 'cmd' || page === 'admin') && !state.canManage) {
+      // 角色还没从 /api/me 回来时先记着，等认出来是协管再跳回去
+      state.pendingPage = page;
+      page = 'more';
+    }
     var prevPage = state.page;
     // 每次从别的页面进管理页，都回到「在线」这一项
     if (page === 'admin' && prevPage !== 'admin' && !state.keepAdminTab) state.adminTab = 'online';
@@ -442,7 +793,7 @@
       b.classList.toggle('active', b.getAttribute('data-page') === page);
     });
 
-    var meta = PAGE_TITLE[page] || ['Nalxer', ''];
+    var meta = PAGE_TITLE[page] || ['LinuxAPP', ''];
     $('page-title').textContent = meta[0];
     $('page-sub').textContent = meta[1] || state.name;
     // 顶栏标题淡入一下，别硬跳
@@ -463,6 +814,7 @@
     }
     // 每次切页都把这一页的数据重新拉一遍（保持最新），不只是第一次进来
     refreshPage();
+    renderServersUi();
   }
 
   /** 新页面滑进来：按底栏顺序决定方向，详情页这种就用淡入。 */
@@ -522,11 +874,144 @@
     }
     else if (page === 'title') loadTitles();
     else if (page === 'admin') { state.adminTab = 'online'; setAdminTab('online'); }
+    else if (page === 'servers') renderServerRows();
     else if (page === 'pdetail' && state.detailName) playerDetail(state.detailName, true);
     else if (page === 'more') {
       loadMe();
+      loadServerInfo();
+      renderCryptoStatus();
       if (state.admin) loadStatus();
     }
+  }
+
+  // ── 多服务器：界面 ───────────────────────────────────
+
+  function renderServersUi() {
+    var on = multiOn();
+    var list = serversLoad();
+    var sw = $('sw-multi');
+    if (sw) sw.setAttribute('aria-checked', on ? 'true' : 'false');
+    var entry = $('btn-servers');
+    if (entry) entry.classList.toggle('hidden', !on);
+    var card = $('server-card');
+    if (card) card.classList.toggle('hidden', on);
+    var hint = $('set-servers-hint');
+    if (hint) {
+      var filled = validSlots().length;
+      hint.textContent = filled ? (filled + ' 台已配置') : '还没有配置';
+    }
+    var btn = $('btn-switch');
+    var showSwitch = on && validSlots().length >= 2 && state.page !== 'servers' && state.page !== 'login';
+    if (btn) btn.classList.toggle('hidden', !showSwitch);
+  }
+
+  function renderServerRows() {
+    var box = $('srv-rows');
+    if (!box) return;
+    var list = serversLoad();
+    var html = '';
+    for (var i = 0; i < 5; i++) {
+      var one = list[i] || {};
+      if (i === 0 && !one.url && state.server) {
+        one.url = state.server;
+        one.name = one.name || state.server.replace(/^https?:\/\//, '');
+      }
+      html += '<div class="srv-row" data-idx="' + i + '">' +
+        '<div class="srv-head"><b>' + (i === 0 ? '主服务器' : '服务器 ' + (i + 1)) + '</b>' +
+        (i === activeIdx() && one.url ? '<span class="tag">当前</span>' : '') + '</div>' +
+        '<input class="srv-name" type="text" placeholder="名称（可留空）" value="' + esc(one.name || '') + '">' +
+        '<input class="srv-url" type="text" inputmode="url" autocapitalize="off" spellcheck="false" ' +
+        'placeholder="' + (i === 0 ? 'http://服务器IP:49282' : '不填就不用这台') + '" value="' + esc(one.url || '') + '">' +
+        '</div>';
+    }
+    box.innerHTML = html;
+  }
+
+  function saveServers() {
+    var rows = document.querySelectorAll('#srv-rows .srv-row');
+    var next = serversLoad();
+    var jobs = [];
+    Array.prototype.forEach.call(rows, function (row) {
+      var i = Number(row.getAttribute('data-idx'));
+      var name = row.querySelector('.srv-name').value.trim();
+      var url = row.querySelector('.srv-url').value.trim();
+      var one = next[i] || {};
+      one.name = name || (url ? url.replace(/^https?:\/\//, '') : '');
+      one.url = url ? normServer(url) : '';
+      if (!url) {
+        one.token = '';
+        one.player = '';
+        one.role = '';
+      }
+      next[i] = one;
+      if (one.url) jobs.push(one);
+    });
+    var msg = $('srv-msg');
+    if (msg) msg.textContent = '正在测试 ' + jobs.length + ' 台服务器…';
+    var checks = jobs.map(function (one) {
+      var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 6000) : 0;
+      return fetch(one.url + '/api/health', { headers: { Accept: 'application/json' }, signal: ctrl ? ctrl.signal : undefined })
+        .then(function (r) { if (timer) clearTimeout(timer); return r.ok; })
+        .catch(function () { if (timer) clearTimeout(timer); return false; });
+    });
+    Promise.all(checks).then(function (oks) {
+      var bad = [];
+      jobs.forEach(function (one, k) { if (!oks[k]) bad.push(one.name || one.url); });
+      if (bad.length) {
+        if (msg) msg.textContent = '连不上的有：' + bad.join('、') + '，这些没保存（其它已保存）';
+        next = next.map(function (one, i) {
+          if (one.url && bad.indexOf(one.name || one.url) >= 0) { one.url = ''; one.token = ''; }
+          return one;
+        });
+        toast('有 ' + bad.length + ' 台连不上，没保存');
+      } else {
+        if (msg) msg.textContent = '已保存 ' + jobs.length + ' 台服务器';
+        toast('已保存 ' + jobs.length + ' 台服务器');
+      }
+      serversSave(next);
+      renderServerRows();
+      renderServersUi();
+    });
+  }
+
+  function openServerSheet() {
+    var list = validSlots();
+    var box = $('sheet-list');
+    if (!box) return;
+    var cur = activeIdx();
+    box.innerHTML = list.map(function (x) {
+      return '<button class="set-row srv-pick" data-idx="' + x.i + '"' +
+        (x.i === cur ? ' style="color:var(--accent)"' : '') + '>' +
+        '<div><div style="font-weight:600">' + esc(x.s.name || x.s.url) + '</div>' +
+        '<div class="hint">' + esc(x.s.url) + (x.s.player ? ' · ' + esc(x.s.player) : '') + '</div></div>' +
+        (x.i === cur ? '<span class="chev">✓</span>' : '<span class="chev">›</span>') +
+        '</button>';
+    }).join('');
+    $('server-sheet').classList.remove('hidden');
+  }
+
+  function closeServerSheet() {
+    $('server-sheet').classList.add('hidden');
+  }
+
+  // ── 安卓后台通知（前台服务） ───────────────────────────
+
+  function bgNotify(method, extra) {
+    var cap = window.Capacitor;
+    if (!cap || !cap.Plugins || !cap.Plugins.BackgroundNotify) return;
+    try {
+      cap.Plugins.BackgroundNotify[method](extra || {}).catch(function () {});
+    } catch (e) { /* 网页里没有这个插件，正常 */ }
+  }
+
+  function bgNotifyStart() {
+    if (!notifyOutOn() || !state.token) return;
+    bgNotify('start', { server: state.server, token: state.token, since: state.chatLast || 0 });
+  }
+
+  function bgNotifyStop() {
+    bgNotify('stop');
   }
 
   // ── 我的 ─────────────────────────────────────────────
@@ -688,6 +1173,14 @@
     return (Math.round(v * 10) / 10) + ' 小时';
   }
 
+  function loadServerInfo() {
+    return api('/api/health', { quiet: true }).then(function (r) {
+      var d = (r && r.data) || {};
+      if (d.version) SERVER_INFO.version = d.version;
+      renderCryptoStatus();
+    }).catch(function () {});
+  }
+
   function loadMe() {
     api('/api/me').then(function (r) {
       var d = r.data || {};
@@ -696,6 +1189,14 @@
       state.verified = d.verified === true || !d.verifyRequired;
       state.su = !!d.su;
       state.owner = !!d.owner;
+      state.admin = d.admin === true || state.owner || state.su;
+      if (d.role) applyRole(d.role, d.caps);
+      if (state.pendingPage && state.canManage) {
+        var want = state.pendingPage;
+        state.pendingPage = '';
+        if (want === 'admin') setAdminTab(state.adminTab || 'online');
+        switchPage(want);
+      }
       applyOwnerPanels();
       state.me = d.data;
       renderMe(d.data);
@@ -712,8 +1213,11 @@
   }
 
   /** 设置页的「玩家身份」一行：服主 / 副服主 / 市长 / 协管 / 管理员 / 普通玩家 */
+  var ROLE_LABEL = { owner: '服主', su: '服主', admin: '管理员', moderator: '协管', player: '普通玩家' };
+
   function renderIdentity(d) {
-    var role = (d && d.identity && d.identity.label) || (d && d.role) || '普通玩家';
+    var role = (d && d.identity && d.identity.label) || ROLE_LABEL[state.role] || (d && d.role) || '普通玩家';
+    if (role === 'moderator') role = '协管';
     if (state.admin && role === '普通玩家') role = '管理员';
     $('set-role').textContent = role;
   }
@@ -748,8 +1252,11 @@
     var suBtn = document.querySelector('[data-admin="su"]');
     if (suBtn) suBtn.classList.toggle('hidden', !(state.su && on));
     if (state.adminTab === 'su' && !(state.su && on)) setAdminTab('online');
-    // 管理页副标题跟着走
-    var subs = ['在线', '玩家', '举报', '惩罚', '假人'];
+    // 管理页副标题只写这个人真的能用的标签
+    var c = state.caps || {};
+    var subs = ['在线', '玩家', '举报'];
+    if (c.mute === true || c.ban === true) subs.push('惩罚');
+    if (c.fake === true) subs.push('假人');
     if (state.su) subs.push('命令');
     if (state.su && on) subs.push('su');
     PAGE_TITLE.admin[1] = subs.join(' / ');
@@ -1204,7 +1711,7 @@
   function pushSystemNotice(m) {
     var ln = capPlugin('LocalNotifications');
     if (!ln || !document.hidden || !notifyOutOn()) return;
-    var who = m.name + (m.channel === 'team' ? ' · 队伍频道' : ' · 公屏');
+    var who = m.name + (m.channel === 'team' ? ' · 队伍频道' : (m.channel === 'manage' ? ' · 队伍' : ' · 公屏'));
     try {
       ln.schedule({
         notifications: [{
@@ -1257,14 +1764,36 @@
       state.notifiedInit = true;
       return;
     }
-    if (!pick || pick.id <= (state.notifiedMax || 0)) return;
-    state.notifiedMax = Math.max(state.notifiedMax || 0, maxId);
+    var prevMax = state.notifiedMax || 0;
+    if (!pick || pick.id <= prevMax) return;
+    state.notifiedMax = Math.max(prevMax, maxId);
+
+    if (document.hidden) {
+      // 退到后台：页面弹窗不出现，所有新消息都走系统通知（一次最多 5 条，免得刷屏）
+      var fresh = [];
+      for (var j = 0; j < list.length; j++) {
+        var mm = list[j];
+        if (!mm || !mm.id || mm.source === 'notice') continue;
+        if (mm.name === state.name && mm.source === 'app') continue;
+        if (mm.id <= prevMax) continue;
+        fresh.push(mm);
+      }
+      fresh.sort(function (a, b) { return a.id - b.id; });
+      var start = Math.max(0, fresh.length - 5);
+      for (var q = start; q < fresh.length; q++) {
+        pushSystemNotice(fresh[q]);
+      }
+      alertSound();
+      alertVibrate();
+      return;
+    }
     showMsgPop(pick);
   }
 
   var popTimer = null;
   function showMsgPop(m) {
     if (!m) return;
+    if (document.hidden) { pushSystemNotice(m); return; }
     // 声音 + 震动 + （后台时）系统通知：每页都算
     alertSound();
     alertVibrate();
@@ -1340,7 +1869,7 @@
     var box = $('su-log');
     if (!box) return;
     box.innerHTML = '';
-    suAppend('Nalxer App —— 服务器控制台', 'dim-line');
+    suAppend('LinuxAPP —— 服务器控制台', 'dim-line');
     suAppend('输入的命令会以 CONSOLE 身份执行，回显就是服务器后台那份。', 'dim-line');
     suAppend('stop / restart / end 不给执行。', 'dim-line');
     suAppend('', 'dim-line');
@@ -1539,10 +2068,21 @@
         (isLeader ? ' data-tset="' + key + '" data-tid="' + tid + '" data-on="' + (on ? '1' : '0') + '"' : ' disabled') +
         '></button></div>';
     }
+    // 领地共享：必须先开进队验证；没开时开关是灰的，下面写清楚为什么
+    var landOn = team.landShare === true;
+    var landRow = '<div class="set-row' + (applyOn ? '' : ' is-disabled') + '">' +
+      '<div class="set-main"><b>领地共享</b><span>' +
+      (applyOn ? '队内互相能进对方领地、动箱子、用门和按钮' : '需要先打开上面的「队伍申请」') +
+      '</span></div>' +
+      '<button class="switch" role="switch" aria-checked="' + (landOn ? 'true' : 'false') + '"' +
+      (isLeader && applyOn ? ' data-tset="land" data-tid="' + tid + '" data-on="' + (landOn ? '1' : '0') + '"' : ' disabled') +
+      '></button></div>';
+
     var switches = '<div class="team-switches">' +
       setRow('队伍聊天', '队员之间收发队伍消息', 'chat', chatOn2) +
       setRow('队伍伤害', '队友之间可以互相造成伤害', 'friendly-fire', ffOn) +
       setRow('队伍申请', '打开后加入要队长批准，关掉就是直接加入', 'apply', applyOn) +
+      landRow +
       '</div>';
     var acts = '<div class="action-grid" style="margin-top:10px">' +
       (isLeader ? '<button class="seg-btn" data-tact="invite" data-tid="' + tid + '">邀请</button>' : '') +
@@ -1922,11 +2462,17 @@
         '<span class="side">' + (penalties.length ? '在惩罚中：' + esc(penalties.join(' / ')) : '没有惩罚') + '</span></div>' +
         '<div class="kv">' + rows + '</div></div>';
 
-      var kinds = [
-        ['banmsg', '禁言'], ['banmove', '禁止移动'], ['banblock', '禁止交互'],
-        ['all', '全部禁止'], ['ban', '封禁']
-      ];
-      html += '<div class="hint" style="margin-top:12px">惩罚（分钟数留空 = 永久）</div>' +
+      var caps = state.caps || {};
+      var kinds = [];
+      if (caps.mute === true) kinds.push(['banmsg', '禁言']);
+      if (caps.ban === true) {
+        kinds.push(['banmove', '禁止移动'], ['banblock', '禁止交互'], ['all', '全部禁止'], ['ban', '封禁']);
+      }
+      var noPenaltyPerm = !kinds.length;
+      if (!kinds.length) kinds = [];
+      html += '<div class="hint" style="margin-top:12px">' +
+        (noPenaltyPerm ? '你没有处罚权限（需要 inthenameoflinux.penalty / .ban），这里只能看。'
+          : (state.moderatorOnly ? '惩罚（分钟数必填，1 ~ 43200，最多 30 天）' : '惩罚（分钟数留空 = 永久）')) + '</div>' +
         '<div class="seg" style="margin-top:6px">' +
         kinds.map(function (k) {
           return '<button class="seg-btn" data-pen="' + k[0] + '">' + k[1] + '</button>';
@@ -1955,7 +2501,14 @@
     }).catch(function (e) { toast(e.message); });
   }
 
+  var MODERATOR_MAX_MINUTES = 30 * 24 * 60;   // 协管的处罚上限：30 天
+
   function applyPenalty(type, name, minutes, reason) {
+    if (state.moderatorOnly) {
+      var mins = Number(minutes || 0);
+      if (!mins || mins <= 0) { toast('请填写处罚时长（1 ~ 43200 分钟），协管不能永久处罚'); return; }
+      if (mins > MODERATOR_MAX_MINUTES) { toast('协管最多只能处罚 30 天，要更久请让管理员操作'); return; }
+    }
     api('/api/admin/penalty', {
       body: { op: 'apply', type: type, name: name, minutes: minutes || 0, reason: reason || '' }
     }).then(function (r) {
@@ -2161,7 +2714,7 @@
         var caps = d.capabilities || {};
         var on = Object.keys(caps).filter(function (k) { return caps[k]; });
         $('server-msg').textContent = d.ok
-          ? ('通了：' + (d.app || 'NalxerApp') + ' v' + (d.version || '?') +
+          ? ('通了：' + (d.app || 'LinuxAPP') + ' v' + (d.version || '?') +
             '（' + (on.length ? on.join('、') + ' ✓' : '没接上任何插件') + '）')
           : '连上了，但服务器说：' + (d.message || '不正常');
       })
@@ -2334,7 +2887,16 @@
       if (t.hasAttribute('data-tset')) {
         var k = t.getAttribute('data-tset');
         var on = t.getAttribute('data-on') === '1';
-        teamAction('setting', k + ':' + (on ? 'off' : 'on'), t.getAttribute('data-tid'));
+        if (k === 'land') {
+          var landTid = t.getAttribute('data-tid');
+          api('/api/team', { body: { action: 'land', team: landTid, on: on ? '0' : '1' } }).then(function (r) {
+            var dd = r.data || {};
+            toast(dd.message || (dd.ok ? '完成' : '失败'));
+            loadTeam();
+          }).catch(function (e) { toast(e.message); });
+        } else {
+          teamAction('setting', k + ':' + (on ? 'off' : 'on'), t.getAttribute('data-tid'));
+        }
         return;
       }
       if (t.hasAttribute('data-apply')) {
@@ -2457,6 +3019,28 @@
     }
     $('sw-theme').addEventListener('click', toggleTheme);
     if ($('btn-theme')) $('btn-theme').addEventListener('click', openTheme);
+    if ($('sw-multi')) $('sw-multi').addEventListener('click', function () {
+      setMultiOn(!multiOn());
+      renderServersUi();
+      if (multiOn()) toast('多服务器已打开，去「软件链接配置」填地址');
+    });
+    if ($('btn-servers')) $('btn-servers').addEventListener('click', function () {
+      renderServerRows();
+      switchPage('servers');
+    });
+    if ($('btn-srv-back')) $('btn-srv-back').addEventListener('click', function () { switchPage('more'); });
+    if ($('btn-srv-save')) $('btn-srv-save').addEventListener('click', saveServers);
+    if ($('btn-switch')) $('btn-switch').addEventListener('click', openServerSheet);
+    if ($('btn-sheet-close')) $('btn-sheet-close').addEventListener('click', closeServerSheet);
+    if ($('server-sheet')) $('server-sheet').addEventListener('click', function (ev) {
+      if (ev.target === $('server-sheet')) closeServerSheet();
+    });
+    if ($('sheet-list')) $('sheet-list').addEventListener('click', function (ev) {
+      var b = ev.target.closest ? ev.target.closest('.srv-pick') : null;
+      if (!b) return;
+      closeServerSheet();
+      switchServer(Number(b.getAttribute('data-idx')));
+    });
     if ($('btn-theme-close')) $('btn-theme-close').addEventListener('click', closeTheme);
     if ($('sw-navfloat')) $('sw-navfloat').addEventListener('click', function () { setNavFloating(!navFloating()); });
     if ($('theme-modal')) $('theme-modal').addEventListener('click', function (ev) {
@@ -2479,6 +3063,7 @@
   function boot() {
     initTheme();
     bind();
+    cryptoInit();
     measureTopbar();
     wrapSegs();
     setTimeout(updateSegArrows, 320);
@@ -2489,7 +3074,9 @@
     window.addEventListener('orientationchange', function () { setTimeout(measureTopbar, 260); });
     // 手机切回前台时立刻同步一次，别等着轮询慢慢补
     document.addEventListener('visibilitychange', function () {
-      if (document.visibilityState !== 'visible' || !state.token) return;
+      if (!state.token) return;
+      if (document.visibilityState === 'hidden') { bgNotifyStart(); return; }
+      bgNotifyStop();
       state.chatLoading = false;
       state.chatPending = false;
       // 回前台补拉消息时不要把几十条都弹一遍
@@ -2498,11 +3085,31 @@
       refreshPage();
     });
 
-    state.server = normServer(localStorage.getItem(LS.server) || DEFAULT_SERVER);
-    state.token = localStorage.getItem(LS.token) || '';
-    state.name = localStorage.getItem(LS.name) || '';
-    state.admin = localStorage.getItem(LS.admin) === '1';
+    if (multiOn()) {
+      var slot = serversLoad()[activeIdx()] || {};
+      state.server = normServer(slot.url || localStorage.getItem(LS.server) || DEFAULT_SERVER);
+      state.token = slot.token || '';
+      // 刚打开多服务器时，主服务器还没存过令牌：沿用当前登录态
+      if (!state.token && localStorage.getItem(LS.token)
+        && normServer(localStorage.getItem(LS.server) || '') === state.server) {
+        state.token = localStorage.getItem(LS.token);
+        state.name = localStorage.getItem(LS.name) || '';
+        state.role = localStorage.getItem(LS.role) || '';
+        slot.token = state.token; slot.player = state.name; slot.role = state.role;
+        var _l = serversLoad(); _l[activeIdx()] = slot; serversSave(_l);
+      }
+      state.name = slot.player || '';
+      state.role = slot.role || 'player';
+      state.admin = state.role === 'admin' || state.role === 'owner' || state.role === 'su';
+    } else {
+      state.server = normServer(localStorage.getItem(LS.server) || DEFAULT_SERVER);
+      state.token = localStorage.getItem(LS.token) || '';
+      state.name = localStorage.getItem(LS.name) || '';
+      state.admin = localStorage.getItem(LS.admin) === '1';
+    }
+    applyRole(state.role || localStorage.getItem(LS.role) || (state.admin ? 'admin' : 'player'));
     $('f-server').value = state.server;
+    renderServersUi();
 
     window.addEventListener('error', function (e) {
       fatal('出错了', (e.message || '') + (e.filename ? '\n' + e.filename + ':' + e.lineno : ''));
