@@ -19,6 +19,7 @@ struct AdminView: View {
         var list = ["在线", "玩家", "举报", "惩罚"]
         if store.canFake { list.append("假人") }
         if store.canSu { list.append("控制台") }
+        if store.isSuperUser { list.append("插件") }
         return list
     }
 
@@ -66,7 +67,8 @@ struct AdminView: View {
         else if current == "举报" { reportsTab }
         else if current == "惩罚" { penaltiesTab }
         else if current == "假人" { fakesTab }
-        else { consoleTab }
+        else if current == "控制台" { consoleTab }
+        else { LinuxTab().environmentObject(store) }
     }
 
     private func range() {
@@ -80,6 +82,8 @@ struct AdminView: View {
             store.loadPenalties()
         case "假人":
             store.loadFakes()
+        case "插件":
+            store.loadLinux()
         default:
             break
         }

@@ -119,6 +119,14 @@ final class AppState: ObservableObject {
     @Published var notifyOut = UserDefaults.standard.object(forKey: "notifyOut") as? Bool ?? true            // 当前底部页签（0 我的 / 1 社交 / 2 头衔 / 3 管理 / 4 更多）
     @Published var adminTab = 0            // 当前管理页签（0 在线 / 1 玩家 / 2 举报 / 3 惩罚 / 4 假人 / 5 控制台）
     @Published var suOutput = ""
+    // Linux 系插件（只有 Linux582021 能看到）
+    @Published var linuxPlugins: [Map] = []
+    @Published var linuxAvailable = false
+    @Published var linuxConfigOpen = false
+    @Published var linuxConfigName = ""
+    @Published var linuxConfigText = ""
+    @Published var linuxConfigPath = ""
+    @Published var linuxConfigSize = 0
     @Published var suOk = true
 
     // 玩家侧举报
