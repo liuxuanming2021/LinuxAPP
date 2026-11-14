@@ -106,7 +106,14 @@ final class AppState: ObservableObject {
     @Published var fakeSettings: Map = [:]
     @Published var fakesAvailable = false
     @Published var staff: [Map] = []
-    @Published var tabIndex = 0            // 当前底部页签（0 我的 / 1 社交 / 2 头衔 / 3 管理 / 4 更多）
+    @Published var tabIndex = 0
+    // 多服务器（最多 5 台，可切换）
+    @Published var multiServer = UserDefaults.standard.bool(forKey: "multiServer")
+    @Published var servers: [[String: String]] = []
+    @Published var activeServer = 0
+    // 提醒开关
+    @Published var notifyInApp = UserDefaults.standard.object(forKey: "notifyInApp") as? Bool ?? true
+    @Published var notifyOut = UserDefaults.standard.object(forKey: "notifyOut") as? Bool ?? true            // 当前底部页签（0 我的 / 1 社交 / 2 头衔 / 3 管理 / 4 更多）
     @Published var adminTab = 0            // 当前管理页签（0 在线 / 1 玩家 / 2 举报 / 3 惩罚 / 4 假人 / 5 控制台）
     @Published var suOutput = ""
     @Published var suOk = true
@@ -144,6 +151,7 @@ final class AppState: ObservableObject {
         if let raw = UserDefaults.standard.string(forKey: "accent"),
            let a = DS.Accent(rawValue: raw) { accent = a }
         applyServer()
+        loadServers()
     }
 
     func onMain(_ work: @escaping () -> Void) {
@@ -182,6 +190,7 @@ final class AppState: ObservableObject {
                 }
                 APIClient.shared.setToken(token)
                 UserDefaults.standard.set(token, forKey: "token")
+                self.saveToken(token, for: self.serverText)
 
                 self.onMain {
                     self.name = (r["name"] as? String) ?? name
@@ -372,7 +381,10 @@ final class AppState: ObservableObject {
                 } else {
                     let known = Set(self.messages.map { $0.id })
                     let add = fresh.filter { !known.contains($0.id) }
-                    if !add.isEmpty { self.messages.append(contentsOf: add) }
+                    if !add.isEmpty {
+                        self.messages.append(contentsOf: add)
+                        self.remind(add)
+                    }
                 }
                 if self.messages.count > 200 { self.messages.removeFirst(self.messages.count - 200) }
                 if last > 0 { self.chatSince = last }

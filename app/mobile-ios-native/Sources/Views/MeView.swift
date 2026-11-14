@@ -3,6 +3,7 @@ import SwiftUI
 struct MeView: View {
     @EnvironmentObject var store: AppState
     @State private var reportTarget = ""
+    @State private var showServers = false
     @State private var reportReason = ""
 
     private var accent: Color { store.accent.color }
@@ -10,6 +11,7 @@ struct MeView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
+                if store.multiServer { serverBar }
                 header
                 stats
                 expCard
@@ -25,6 +27,66 @@ struct MeView: View {
             Task { await store.loadCheckIn() }
             store.loadMyReports()
         }
+    }
+
+    /// 多服务器：当前这台 + 切换
+    private var serverBar: some View {
+        Button(action: { showServers = true }) {
+            HStack(spacing: 8) {
+                Image(systemName: "server.rack")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(accent)
+                Text(store.servers.indices.contains(store.activeServer)
+                     ? displayName(store.activeServer) : store.serverText)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(DS.text)
+                    .lineLimit(1)
+                Spacer()
+                Text("切换").font(.system(size: 12)).foregroundColor(DS.muted)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold)).foregroundColor(DS.muted)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .background(DS.card)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(PlainButtonStyle())
+        .sheet(isPresented: $showServers) {
+            NavigationView {
+                List {
+                    ForEach(store.servers.indices, id: \.self) { i in
+                        Button(action: {
+                            showServers = false
+                            store.switchServer(to: i) { ok in
+                                store.toast(ok ? "已切到 \(displayName(i))" : "已切到 \(displayName(i))，这台要重新登录")
+                            }
+                        }) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(displayName(i)).foregroundColor(DS.text)
+                                    Text(store.servers[i]["url"] ?? "")
+                                        .font(.system(size: 12)).foregroundColor(DS.muted)
+                                }
+                                Spacer()
+                                if i == store.activeServer {
+                                    Image(systemName: "checkmark").foregroundColor(accent)
+                                }
+                            }
+                        }
+                    }
+                }
+                .listStyle(GroupedListStyle())
+                .navigationBarTitle(Text("切换服务器"), displayMode: .inline)
+                .navigationBarItems(trailing: Button("关闭") { showServers = false })
+            }
+            .navigationViewStyle(StackNavigationViewStyle())
+        }
+    }
+
+    private func displayName(_ i: Int) -> String {
+        guard store.servers.indices.contains(i) else { return store.serverText }
+        let n = store.servers[i]["name"] ?? ""
+        return n.isEmpty ? (store.servers[i]["url"] ?? "") : n
     }
 
     private var header: some View {

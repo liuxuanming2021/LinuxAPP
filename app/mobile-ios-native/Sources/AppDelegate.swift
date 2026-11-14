@@ -1,13 +1,28 @@
 import UIKit
 import SwiftUI
+import UserNotifications
 
 @UIApplicationMain
-final class AppDelegate: UIResponder, UIApplicationDelegate {
+final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // 启动就把地址和令牌恢复好，界面首次渲染就能用
         AppState.shared.bootstrap()
+        // 通知：前台也要弹横幅、响系统默认提示音，所以自己当代理
+        UNUserNotificationCenter.current().delegate = self
+        AppState.shared.askNotifyPermission()
         return true
+    }
+
+    /// App 在前台时也显示横幅并播放提示音（默认就是系统设置里的"新通知"声音）
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        if #available(iOS 14.0, *) {
+            completionHandler([.banner, .sound, .list])
+        } else {
+            completionHandler([.alert, .sound])
+        }
     }
 
     func application(_ application: UIApplication,
