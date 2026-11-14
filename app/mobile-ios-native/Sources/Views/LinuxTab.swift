@@ -32,7 +32,7 @@ extension AppState {
                 var body: Map = [:]
                 body["name"] = pluginName
                 body["op"] = op
-                let r = try await APIClient.shared.post("/api/admin/linux/op", body: body)
+                let r = try await APIClient.shared.post("/api/admin/linux/op", body)
                 let msg = r.s("message")
                 onMain { self.toast(msg.isEmpty ? "完成" : msg) }
                 loadLinux()
@@ -66,7 +66,7 @@ extension AppState {
                 var body: Map = [:]
                 body["name"] = pluginName
                 body["text"] = text
-                let r = try await APIClient.shared.post("/api/admin/linux/config", body: body)
+                let r = try await APIClient.shared.post("/api/admin/linux/config", body)
                 let msg = r.s("message")
                 onMain {
                     self.toast(msg.isEmpty ? "已保存" : msg)
