@@ -70,6 +70,7 @@ struct ChatView: View {
         .rotationEffect(.radians(.pi))
         .scaleEffect(x: -1, y: 1, anchor: .center)
         .background(DS.bg)
+        .onTapGesture { hideKeyboard() }
     }
 
     @ViewBuilder
@@ -145,6 +146,15 @@ struct ChatView: View {
             ChatInputField(text: $draft, placeholder: "说点什么…", onSend: send)
                 .frame(height: 36)
 
+            Button(action: hideKeyboard) {
+                Image(systemName: "keyboard.chevron.compact.down")
+                    .font(.system(size: 16, weight: .semibold))
+                    .frame(width: 34, height: 34)
+            }
+            .background(DS.chip)
+            .foregroundColor(DS.text)
+            .cornerRadius(9)
+
             Button(action: send) {
                 Text("发送")
                     .font(.system(size: 14, weight: .semibold))
@@ -168,6 +178,11 @@ struct ChatView: View {
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
+    }
+
+    private func hideKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
+                                        to: nil, from: nil, for: nil)
     }
 
     private func send() {

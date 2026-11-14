@@ -11,6 +11,7 @@ struct AdminView: View {
     @State private var reportSheet: Map? = nil
     @State private var reportNote = ""
     @State private var newFake = ""
+    @State private var fakeName: String? = nil
     @State private var cmd = ""
 
     private var tabs: [String] {
@@ -32,7 +33,8 @@ struct AdminView: View {
 
             content
         }
-        .onAppear { reload() }
+        .onAppear { range(); store.adminTab = tab }
+        .onChange(of: tab) { _ in store.adminTab = tab; range() }
         .sheet(item: Binding(get: { detailName.map { NameBox(id: $0) } },
                              set: { detailName = $0?.id })) { box in
             PlayerDetailSheet(name: box.id).environmentObject(self.store)
@@ -40,6 +42,10 @@ struct AdminView: View {
         .sheet(item: Binding(get: { reportSheet.map { ReportBox(row: $0) } },
                              set: { if $0 == nil { reportSheet = nil } })) { box in
             handleSheet(box.row)
+        }
+        .sheet(item: Binding(get: { fakeName.map { NameBox(id: $0) } },
+                             set: { fakeName = $0?.id })) { box in
+            FakeDetailSheet(name: box.id).environmentObject(self.store)
         }
     }
 
@@ -58,9 +64,20 @@ struct AdminView: View {
         else { consoleTab }
     }
 
-    private func reload() {
-        Task { await store.loadOnline() }
-        store.loadStaff()
+    private func range() {
+        switch current {
+        case "在线":
+            Task { await store.loadOnline() }
+            store.loadStaff()
+        case "举报":
+            store.loadAdminReports()
+        case "惩罚":
+            store.loadPenalties()
+        case "假人":
+            store.loadFakes()
+        default:
+            break
+        }
     }
 
     // MARK: - 在线
@@ -77,7 +94,7 @@ struct AdminView: View {
                             Circle().fill(DS.green).frame(width: 8, height: 8)
                             Text(p.id).foregroundColor(DS.text)
                             Spacer()
-                            Text(p.role).font(.system(size: 12)).foregroundColor(DS.muted)
+                            Text(AppState.roleLabel(p.role)).font(.system(size: 12)).foregroundColor(DS.muted)
                             Image(systemName: "chevron.right")
                                 .font(.system(size: 12)).foregroundColor(DS.muted)
                         }
@@ -320,17 +337,24 @@ struct AdminView: View {
                         set: { store.setFakeInvulnerable($0) }
                     ))
                 }
-                Section(header: Text("假人（\(store.fakes.count)）")) {
+                Section(header: Text("假人（\(store.fakes.count)）"),
+                        footer: Text("点一个假人进去看详情：坐标、创建信息、它自己的开关，还有重生 / 移除。")) {
                     ForEach(store.fakes.indices, id: \.self) { i in
-                    let f = store.fakes[i]
+                        let f = store.fakes[i]
                         let n = f.s("name")
-                        HStack {
-                            Text(n)
-                            Spacer()
-                            Button("移除") { store.fakeOp("remove", name: n) }
-                                .font(.system(size: 13)).foregroundColor(.red)
-                            Button("重生") { store.fakeOp("respawn", name: n) }
-                                .font(.system(size: 13))
+                        Button(action: { fakeName = n }) {
+                            HStack(spacing: 10) {
+                                SkinHead(name: n, uuid: f.s("uuid"), size: 34, radius: 9)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(n).foregroundColor(DS.text)
+                                    Text(f.b("running") ? "运行中" : (f.b("enabled") ? "已启用，未加载" : "已停用"))
+                                        .font(.system(size: 11))
+                                        .foregroundColor(f.b("running") ? DS.green : DS.muted)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 12)).foregroundColor(DS.muted)
+                            }
                         }
                     }
                 }
@@ -406,7 +430,7 @@ struct PlayerDetailSheet: View {
                 Section(header: Text(name)) {
                     row("状态", store.detail.b("online") ? "在线" : "离线",
                         color: store.detail.b("online") ? DS.green : DS.muted)
-                    row("身份", store.detail.m("identity").s("label", store.detail.s("role")))
+                    row("身份", AppState.roleLabel(store.detail.m("identity").s("label", store.detail.s("role"))))
                     row("金币", store.detail.b("hasCoins")
                         ? Fmt.money(store.detail.d("coins")) : "—")
                     row("点券", store.detail.b("hasPoints") ? "\(store.detail.i("points"))" : "—")

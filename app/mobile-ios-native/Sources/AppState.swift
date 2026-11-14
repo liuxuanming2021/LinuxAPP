@@ -45,12 +45,20 @@ final class AppState: ObservableObject {
     @Published var signStreak = 0
 
     // 社交
-    @Published var channel = "world"      // world / team
+    /// world / team。切频道先清空，否则会先看到上一个频道的消息（队伍频道"乱跳"就是这个）
+    @Published var channel = "world" {
+        didSet { if oldValue != channel { messages = [] } }
+    }
     @Published var messages: [ChatMessage] = []
     @Published var online: [OnlinePlayer] = []
 
-    // 主题
-    @Published var accent: DS.Accent = .sky
+    // 主题（选过的颜色存本地，冷启动要还原）
+    @Published var accent: DS.Accent = .sky {
+        didSet { UserDefaults.standard.set(accent.rawValue, forKey: "accent") }
+    }
+
+    /// 冷启动时先等 restore() 有结果，避免"明明登录了却闪一下登录页"
+    @Published var booting = true
 
     // 提示条：发一条就把 seq +1，视图监听它弹提示
     @Published var toastText = ""
@@ -92,6 +100,8 @@ final class AppState: ObservableObject {
     @Published var fakeSettings: Map = [:]
     @Published var fakesAvailable = false
     @Published var staff: [Map] = []
+    @Published var tabIndex = 0            // 当前底部页签（0 我的 / 1 社交 / 2 头衔 / 3 管理 / 4 更多）
+    @Published var adminTab = 0            // 当前管理页签（0 在线 / 1 玩家 / 2 举报 / 3 惩罚 / 4 假人 / 5 控制台）
     @Published var suOutput = ""
     @Published var suOk = true
 
@@ -124,7 +134,11 @@ final class AppState: ObservableObject {
     var canBan: Bool { caps["ban"] == true }
     var isModeratorOnly: Bool { canManage && !canBan }
 
-    init() { applyServer() }
+    init() {
+        if let raw = UserDefaults.standard.string(forKey: "accent"),
+           let a = DS.Accent(rawValue: raw) { accent = a }
+        applyServer()
+    }
 
     func onMain(_ work: @escaping () -> Void) {
         if Thread.isMainThread { work() } else { DispatchQueue.main.async(execute: work) }
@@ -204,6 +218,7 @@ final class AppState: ObservableObject {
     }
 
     func restore() async {
+        defer { onMain { self.booting = false } }
         guard let token = UserDefaults.standard.string(forKey: "token") else { return }
         APIClient.shared.setToken(token)
         do {
@@ -304,8 +319,12 @@ final class AppState: ObservableObject {
 
     // MARK: 聊天
 
+    private var chatBusy = false
+
     func loadChat() async {
-        guard loggedIn else { return }
+        guard loggedIn, !chatBusy else { return }
+        chatBusy = true
+        defer { chatBusy = false }
         do {
             var q = "/api/chat?since=0&limit=80"
             if channel == "team" {
@@ -315,10 +334,9 @@ final class AppState: ObservableObject {
                         let first = (t.a("myTeams").first)?.s("id") ?? ""
                         let tid = first
                         self.onMain { self.teamId = tid; self.myTeams = t.a("myTeams") }
-                        if tid.isEmpty { self.onMain { self.messages = [] }; return }
+                        if tid.isEmpty { return }
                         q += "&channel=team&team=" + tid
                     } else {
-                        self.onMain { self.messages = [] }
                         return
                     }
                 } else {
@@ -337,8 +355,14 @@ final class AppState: ObservableObject {
                                    channel: (m["channel"] as? String) ?? "world",
                                    time: Date(timeIntervalSince1970: t / 1000))
             }
-            // 服务端已经给了真消息，把本地那条占位的（id = -1）去掉
-            self.onMain { self.messages = list.filter { $0.id != -1 } }
+            // 服务端已经给了真消息，把本地那条占位的（id = -1）去掉。
+            // 内容没变就不动数组，否则 SwiftUI 每 2 秒重排一次，滚动会跳。
+            let fresh = list.filter { $0.id != -1 }
+            self.onMain {
+                let same = fresh.count == self.messages.count
+                    && zip(fresh, self.messages).allSatisfy { $0.id == $1.id && $0.text == $1.text }
+                if !same { self.messages = fresh }
+            }
         } catch { }
     }
 
@@ -383,13 +407,32 @@ final class AppState: ObservableObject {
     private func startPolling() {
         timer?.invalidate()
         ticks = 0
-        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+        timer = Timer(timeInterval: 1.5, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             Task {
                 await self.loadChat()
                 self.ticks += 1
                 if self.ticks % 3 == 0 { await self.loadOnline() }
+                // 「我的」页的金币点券等级也跟着刷，不用手动下拉
+                if self.tabIndex == 0, self.ticks % 2 == 0 { await self.loadMe() }
+                // 管理页：当前页的数据跟着一起刷，不用手动点刷新
+                if self.canManage {
+                    switch self.adminTab {
+                    case 0:
+                        self.loadStaff()
+                    case 2:
+                        if self.ticks % 2 == 0 { self.loadAdminReports() }
+                    case 3:
+                        if self.ticks % 2 == 0 { self.loadPenalties() }
+                    case 4:
+                        if self.ticks % 4 == 0 { self.loadFakes() }
+                    default:
+                        break
+                    }
+                }
             }
         }
+        // 默认模式下滚动/弹键盘时定时器会被暂停，这就是"必须手动刷新才有新消息"的根因
+        if let t = timer { RunLoop.main.add(t, forMode: .common) }
     }
 }

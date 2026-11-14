@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct MoreView: View {
     @EnvironmentObject var store: AppState
@@ -112,9 +113,19 @@ struct MoreView: View {
 
     private var about: some View {
         VStack(spacing: 0) {
+            InfoRow(label: "软件名称", value: "LinuxAPP")
             InfoRow(label: "软件版本", value: appVersion)
+            InfoRow(label: "构建号", value: appBuild)
+            InfoRow(label: "客户端", value: "原生 iOS · SwiftUI")
+            InfoRow(label: "最低系统", value: "iOS 13.0")
+            InfoRow(label: "系统版本", value: UIDevice.current.systemName + " " + UIDevice.current.systemVersion)
+            InfoRow(label: "设备", value: UIDevice.current.model)
+            InfoRow(label: "Bundle ID", value: Bundle.main.bundleIdentifier ?? "—")
+            InfoRow(label: "接口地址", value: store.serverText)
             InfoRow(label: "服务器插件", value: store.serverVersion.isEmpty ? "读取中…" : "\(store.serverName) \(store.serverVersion)")
-            InfoRow(label: "客户端", value: "原生 iOS（SwiftUI）")
+            InfoRow(label: "连接加密", value: store.secure ? "已加密（AES-256-GCM）" : "明文（服务器未强制加密）",
+                    accent: store.secure ? DS.green : nil)
+            InfoRow(label: "数据来源", value: "LinuxAPP 插件 HTTP 接口")
         }
         .padding(.horizontal, 16)
         .background(DS.card)
@@ -122,9 +133,11 @@ struct MoreView: View {
     }
 
     private var appVersion: String {
-        let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
-        let b = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
-        return b.isEmpty ? v : "\(v)（\(b)）"
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
+    }
+
+    private var appBuild: String {
+        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"
     }
 
     private var logoutButton: some View {

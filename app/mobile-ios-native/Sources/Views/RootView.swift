@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import UIKit
 
 /// 根视图：登录后是系统 TabView + NavigationView。
 /// 底部标签栏、顶部导航栏全部是苹果原生控件（iOS 26 上系统自动渲染成液态玻璃）。
@@ -11,7 +12,9 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if store.loggedIn {
+            if store.booting {
+                SplashView()
+            } else if store.loggedIn {
                 TabView(selection: $tab) {
                     NavigationView {
                         MeView()
@@ -76,8 +79,16 @@ struct RootView: View {
                     .tag(4)
                 }
                 .accentColor(store.accent.color)
+                .onChange(of: tab) { v in store.tabIndex = v; refreshTab(v) }
                 .onReceive(store.$toastSeq) { seq in
                     if seq > 0 { showToast() }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+                    // 从后台回来：所有数据重新拉一遍
+                    Task { await store.refreshAll() }
+                    store.loadTeam()
+                    store.loadTitles()
+                    store.loadStaff()
                 }
                 .overlay(
                     Group {
@@ -106,6 +117,24 @@ struct RootView: View {
     private var refreshButton: some View {
         Button(action: refreshNow) {
             Image(systemName: "arrow.clockwise")
+        }
+    }
+
+    private func refreshTab(_ v: Int) {
+        switch v {
+        case 0:
+            Task { await store.loadMe() }
+            store.loadCheckIn()
+            store.loadMyReports()
+        case 1:
+            store.loadTeam()
+            Task { await store.loadChat() }
+        case 2:
+            store.loadTitles()
+        case 4:
+            store.loadHealth()
+        default:
+            break
         }
     }
 
