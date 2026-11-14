@@ -7,6 +7,7 @@ import UIKit
 struct RootView: View {
     @EnvironmentObject var store: AppState
     @State private var tab = 0
+    @State private var scrollKey = 0
     @State private var toastOn = false
     @State private var toastWork: DispatchWorkItem?
 
@@ -18,10 +19,12 @@ struct RootView: View {
                 TabView(selection: Binding(get: { tab }, set: { v in
                 tab = v
                 store.tabIndex = v
+                if v != 1 { scrollKey += 1 }
                 refreshTab(v)
             })) {
                     NavigationView {
                         MeView()
+                            .id("top-\(scrollKey)")
                             .navigationBarTitle(Text("我的数据"), displayMode: .inline)
                             .navigationBarItems(trailing: refreshButton)
                     }
@@ -46,6 +49,7 @@ struct RootView: View {
 
                     NavigationView {
                         TitlesView()
+                            .id("top-\(scrollKey)")
                             .navigationBarTitle(Text("头衔"), displayMode: .inline)
                             .navigationBarItems(trailing: refreshButton)
                     }
@@ -59,6 +63,7 @@ struct RootView: View {
                     if store.canManage {
                         NavigationView {
                             AdminView()
+                            .id("top-\(scrollKey)")
                                 .navigationBarTitle(Text("服务器管理"), displayMode: .inline)
                                 .navigationBarItems(trailing: refreshButton)
                         }
@@ -72,6 +77,7 @@ struct RootView: View {
 
                     NavigationView {
                         MoreView()
+                            .id("top-\(scrollKey)")
                             .navigationBarTitle(Text("更多"), displayMode: .inline)
                             .navigationBarItems(trailing: refreshButton)
                     }
@@ -111,6 +117,15 @@ struct RootView: View {
                     },
                     alignment: .bottom
                 )
+                .onReceive(store.$loggedIn) { on in
+                    // 登录成功 / 冷启动恢复登录后，一律落在「我的」页，并从页面顶部开始
+                    if on {
+                        tab = 0
+                        store.tabIndex = 0
+                        scrollKey += 1
+                        refreshTab(0)
+                    }
+                }
             } else {
                 LoginView()
             }
