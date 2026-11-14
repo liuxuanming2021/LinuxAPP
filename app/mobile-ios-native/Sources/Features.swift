@@ -26,7 +26,7 @@ extension AppState {
                 guard r.b("ok") else { return self.toast(r.s("message", "读不到头衔")) }
                 let d = r.m("data")
                 self.onMain { self.applyTitles(d) }
-            } catch { self.toast(error.localizedDescription) }
+            } catch { self.toast(NetMsg.zh(error)) }
         }
     }
 
@@ -51,7 +51,7 @@ extension AppState {
                     self.onMain { self.applyTitles(d) }
                 }
                 self.loadMeSoon()
-            } catch { self.toast(error.localizedDescription) }
+            } catch { self.toast(NetMsg.zh(error)) }
         }
     }
 
@@ -68,7 +68,7 @@ extension AppState {
                     self.serverTeams = r.a("teams")
                     self.teamId = self.myTeams.first?.s("id") ?? ""
                 }
-            } catch { self.toast(error.localizedDescription) }
+            } catch { self.toast(NetMsg.zh(error)) }
         }
     }
 
@@ -83,7 +83,7 @@ extension AppState {
                 let r = try await APIClient.shared.post("/api/team", body)
                 self.toast(r.s("message", r.b("ok") ? "完成" : "失败"))
                 if r.b("ok") { self.loadTeam(); self.loadMeSoon() }
-            } catch { self.toast(error.localizedDescription) }
+            } catch { self.toast(NetMsg.zh(error)) }
         }
     }
 
@@ -96,7 +96,7 @@ extension AppState {
             do {
                 let r = try await APIClient.shared.get("/api/admin/players?q=\(self.esc(key))")
                 self.onMain { self.searchResults = r.a("hits").isEmpty ? r.a("players") : r.a("hits") }
-            } catch { self.toast(error.localizedDescription) }
+            } catch { self.toast(NetMsg.zh(error)) }
         }
     }
 
@@ -111,7 +111,7 @@ extension AppState {
                     self.detailPenalties = r.m("penalties")
                     self.detailReports = r.a("reports")
                 }
-            } catch { self.toast(error.localizedDescription) }
+            } catch { self.toast(NetMsg.zh(error)) }
         }
     }
 
@@ -127,7 +127,7 @@ extension AppState {
                     self.loadPlayerDetail(name)
                     self.loadPenalties()
                 }
-            } catch { self.toast(error.localizedDescription) }
+            } catch { self.toast(NetMsg.zh(error)) }
         }
     }
 
@@ -136,7 +136,7 @@ extension AppState {
             do {
                 let r = try await APIClient.shared.get("/api/admin/penalties")
                 self.onMain { self.penalties = r.a("penalties") }
-            } catch { self.toast(error.localizedDescription) }
+            } catch { self.toast(NetMsg.zh(error)) }
         }
     }
 
@@ -152,7 +152,7 @@ extension AppState {
                     self.reportTotal = r.i("count")
                     self.reportHandled = r.i("handledCount")
                 }
-            } catch { self.toast(error.localizedDescription) }
+            } catch { self.toast(NetMsg.zh(error)) }
         }
     }
 
@@ -163,7 +163,7 @@ extension AppState {
                                                         ["op": op, "id": id, "note": note])
                 self.toast(r.s("message", r.b("ok") ? "已处理" : "失败"))
                 if r.b("ok") { self.loadAdminReports(self.reportFilter) }
-            } catch { self.toast(error.localizedDescription) }
+            } catch { self.toast(NetMsg.zh(error)) }
         }
     }
 
@@ -178,7 +178,7 @@ extension AppState {
                     self.fakes = r.a("fakes")
                     self.fakeSettings = r.m("settings")
                 }
-            } catch { self.toast(error.localizedDescription) }
+            } catch { self.toast(NetMsg.zh(error)) }
         }
     }
 
@@ -192,7 +192,7 @@ extension AppState {
                 let r = try await APIClient.shared.post("/api/admin/fake", body)
                 self.toast(r.s("message", r.b("ok") ? "完成" : "失败"))
                 if r.b("ok") { self.loadFakes() }
-            } catch { self.toast(error.localizedDescription) }
+            } catch { self.toast(NetMsg.zh(error)) }
         }
     }
 
@@ -206,7 +206,7 @@ extension AppState {
                     self.reportsAvailable = r.b("available")
                     self.myReports = r.a("reports")
                 }
-            } catch { self.toast(error.localizedDescription) }
+            } catch { self.toast(NetMsg.zh(error)) }
         }
     }
 
@@ -219,7 +219,7 @@ extension AppState {
                 let r = try await APIClient.shared.post("/api/report", ["target": t, "reason": w])
                 self.toast(r.s("message", r.b("ok") ? "举报已提交" : "提交失败"))
                 if r.b("ok") { self.loadMyReports() }
-            } catch { self.toast(error.localizedDescription) }
+            } catch { self.toast(NetMsg.zh(error)) }
         }
     }
 
@@ -236,7 +236,7 @@ extension AppState {
                     self.hasCoins = r["coins"] != nil
                     self.hasPoints = r["points"] != nil
                 }
-            } catch { self.toast(error.localizedDescription) }
+            } catch { self.toast(NetMsg.zh(error)) }
         }
     }
 
@@ -253,7 +253,7 @@ extension AppState {
                 self.toast(msg)
                 if r.b("ok") { self.loadTransfer(); self.loadMeSoon() }
                 done(msg)
-            } catch { done(error.localizedDescription) }
+            } catch { done(NetMsg.zh(error)) }
         }
     }
 
@@ -265,7 +265,7 @@ extension AppState {
             do {
                 let r = try await APIClient.shared.get("/api/admin/staff")
                 self.onMain { self.staff = r.a("staff") }
-            } catch { self.toast(error.localizedDescription) }
+            } catch { self.toast(NetMsg.zh(error)) }
         }
     }
 
@@ -279,7 +279,7 @@ extension AppState {
                 ])
                 self.toast(r.s("message", r.b("ok") ? "已封禁" : "封禁失败"))
                 if r.b("ok") { self.loadPlayerDetail(name); self.loadPenalties() }
-            } catch { self.toast(error.localizedDescription) }
+            } catch { self.toast(NetMsg.zh(error)) }
         }
     }
 
@@ -289,7 +289,7 @@ extension AppState {
                 let r = try await APIClient.shared.post("/api/admin/unban", ["name": name])
                 self.toast(r.s("message", r.b("ok") ? "已解封" : "解封失败"))
                 if r.b("ok") { self.loadPlayerDetail(name) }
-            } catch { self.toast(error.localizedDescription) }
+            } catch { self.toast(NetMsg.zh(error)) }
         }
     }
 
@@ -306,7 +306,7 @@ extension AppState {
                     await self.respawnAllFakes()
                     self.loadFakes()
                 }
-            } catch { self.toast(error.localizedDescription) }
+            } catch { self.toast(NetMsg.zh(error)) }
         }
     }
 
@@ -341,7 +341,7 @@ extension AppState {
                     else { self.suOutput = msg + "\n" + body }
                 }
             } catch {
-                self.onMain { self.suOk = false; self.suOutput = error.localizedDescription }
+                self.onMain { self.suOk = false; self.suOutput = NetMsg.zh(error) }
             }
         }
     }

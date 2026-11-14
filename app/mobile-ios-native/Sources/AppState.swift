@@ -194,7 +194,7 @@ final class AppState: ObservableObject {
                 await self.refreshAll()
                 self.startPolling()
             } catch {
-                let msg = error.localizedDescription
+                let msg = NetMsg.zh(error)
                 self.onMain { self.busy = false; self.errorText = msg; done(msg) }
             }
         }
@@ -314,7 +314,7 @@ final class AppState: ObservableObject {
                 await self.loadCheckIn()
                 self.loadMeAsync()
             } catch {
-                self.toast(error.localizedDescription)
+                self.toast(NetMsg.zh(error))
             }
         }
     }
@@ -406,7 +406,7 @@ final class AppState: ObservableObject {
                 _ = try await APIClient.shared.post("/api/chat", ["text": t, "channel": channel, "team": teamId])
                 await self.loadChat()
             } catch {
-                let msg = error.localizedDescription
+                let msg = NetMsg.zh(error)
                 self.onMain {
                     self.messages.removeAll { $0.id == -1 }
                     self.errorText = msg

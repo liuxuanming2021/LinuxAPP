@@ -82,7 +82,7 @@ struct LoginView: View {
                 diag = "连接成功：HTTP 200，服务端版本 \(v)"
             } else { diag = "连上了，但返回的不是 JSON" }
         } catch {
-            diag = "连不上：\(error.localizedDescription)"
+            diag = "连不上：\(NetMsg.zh(error))"
         }
     }
 }
