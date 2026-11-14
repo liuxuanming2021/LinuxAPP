@@ -17,6 +17,7 @@ struct TeamView: View {
                 serverCard
                 Spacer().frame(height: 90)
             }
+            .padding(.horizontal, 16)
             .padding(.top, 4)
         }
         .onAppear { store.loadTeam() }

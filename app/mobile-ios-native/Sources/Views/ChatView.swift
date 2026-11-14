@@ -21,11 +21,7 @@ struct ChatView: View {
             .padding(.top, 6)
 
             if tab == 2 {
-                ScrollView(.vertical, showsIndicators: true) {
-                    TeamView()
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 12)
-                }
+                TeamView()
             } else {
                 messageList
                 inputBar
