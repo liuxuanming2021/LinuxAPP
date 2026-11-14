@@ -506,6 +506,8 @@ struct PlayerDetailSheet: View {
         ["banmsg", "banmove", "banblock", "all"].filter { store.detailPenalties.b($0) }
     }
 
+    private func penaltyName(_ t: String) -> String { penaltyTitle(t) }
+
     private var activePenalties: [String] {
         activePenaltyKeys.map { penaltyName($0) }
     }
@@ -598,5 +600,17 @@ struct PenaltySheet: View {
             .navigationBarItems(trailing: Button("取消") { presentation.wrappedValue.dismiss() })
         }
         .navigationViewStyle(StackNavigationViewStyle())
+    }
+}
+
+/// 惩罚类型的英文 key → 中文
+func penaltyTitle(_ t: String) -> String {
+    switch t {
+    case "banmsg": return "禁言"
+    case "banmove": return "禁止移动"
+    case "banblock": return "禁止交互"
+    case "all": return "全部限制"
+    case "ban": return "封禁"
+    default: return t
     }
 }
