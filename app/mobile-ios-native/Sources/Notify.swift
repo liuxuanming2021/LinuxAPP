@@ -27,7 +27,8 @@ extension AppState {
             if tabIndex == 1 && channel != "manage" { return }
             if !notifyInApp { return }
         } else {
-            if !notifyOut { return }
+            // 后台：要「软件外提醒」开着，并且「软件内提醒」也没关——关了就意味着不要通知
+            if !notifyOut || !notifyInApp { return }
         }
 
         let c = UNMutableNotificationContent()
