@@ -630,22 +630,52 @@
     el.classList.remove('hidden');
   }
 
-  function logout(silent) {
-    if (!silent && state.token && state.server) {
-      // 告诉服务端「我退了」，另一台设备才能立刻登录。
-      // 这里用最朴素的 fetch（不走加密通道、不用 api()）：
-      // 退出时可能还没握手，走 api() 会被 426 拦下，令牌就永远释放不了。
+  /**
+   * 退出时把服务端令牌释放掉（另一台设备才能立刻登录）。
+   * 先走加密通道：服务端开了 strict-encryption 也能过；失败再补一次明文（带 X-No-Enc）。
+   * 整个释放过程最多等 1.5 秒，超时就先本地退出，不卡界面。
+   */
+  function releaseSession(done) {
+    if (!state.token || !state.server) { done(); return; }
+    var tok = state.token;
+    var base = String(state.server).replace(/\/+$/, '');
+    var finished = false;
+    function finish() {
+      if (finished) return;
+      finished = true;
+      done();
+    }
+    setTimeout(finish, 1500);
+    function plain() {
       try {
-        var base = String(state.server).replace(/\/+$/, '');
         fetch(base + '/api/logout', {
           method: 'POST',
-          headers: { 'Authorization': 'Bearer ' + state.token, 'Content-Type': 'application/json' },
+          headers: {
+            'Authorization': 'Bearer ' + tok,
+            'Content-Type': 'application/json',
+            'X-No-Enc': '1'
+          },
           body: '{}',
           cache: 'no-store',
           keepalive: true
-        }).catch(function () {});
-      } catch (e) { /* 忽略：本地照样退出 */ }
+        }).then(finish).catch(finish);
+      } catch (e) {
+        finish();
+      }
     }
+    try {
+      api('/api/logout', { body: {}, quiet: true }).then(finish).catch(plain);
+    } catch (e) {
+      plain();
+    }
+  }
+
+  function logout(silent) {
+    if (silent) { clearLogout(); return; }
+    releaseSession(clearLogout);
+  }
+
+  function clearLogout() {
     state.token = '';
     state.name = '';
     state.takeover = false;
