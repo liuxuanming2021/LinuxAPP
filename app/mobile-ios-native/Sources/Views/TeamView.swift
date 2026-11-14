@@ -1,12 +1,9 @@
 import SwiftUI
+import UIKit
 
 struct TeamView: View {
     @EnvironmentObject var store: AppState
     @State private var newName = ""
-    @State private var promptTitle = ""
-    @State private var promptHint = ""
-    @State private var showPrompt = false
-    @State private var promptAction: (String) -> Void = { _ in }
 
     private var accent: Color { store.accent.color }
 
@@ -23,18 +20,25 @@ struct TeamView: View {
             .padding(.top, 4)
         }
         .onAppear { store.loadTeam() }
-        .sheet(isPresented: $showPrompt) {
-            PromptSheet(title: self.promptTitle, hint: self.promptHint) { text in
-                self.promptAction(text)
-            }
-        }
     }
 
+    /// 用系统 UIAlertController：标题和输入框都是苹果原生样式。
+    /// （iOS 13 的 SwiftUI alert 放不了输入框，自绘 sheet 又会显示成一片空白）
     private func ask(_ title: String, _ hint: String, _ action: @escaping (String) -> Void) {
-        promptTitle = title
-        promptHint = hint
-        promptAction = action
-        showPrompt = true
+        guard let root = UIApplication.shared.windows.first(where: { $0.isKeyWindow })?.rootViewController else { return }
+        let alert = UIAlertController(title: title, message: nil, preferredStyle: .alert)
+        alert.addTextField { tf in
+            tf.placeholder = hint
+            tf.autocapitalizationType = .none
+            tf.autocorrectionType = .no
+        }
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel, handler: nil))
+        alert.addAction(UIAlertAction(title: "确定", style: .default) { _ in
+            action(alert.textFields?.first?.text ?? "")
+        })
+        var top = root
+        while let p = top.presentedViewController { top = p }
+        top.present(alert, animated: true)
     }
 
     // MARK: 建队
@@ -73,7 +77,6 @@ struct TeamView: View {
         let isLeader = team.s("leaderName").lowercased() == store.name.lowercased()
         let members = team.a("members")
         let apps = team.a("applications")
-        let chatOn = team["chatOn"] as? Bool ?? true
 
         return Card {
             HStack(alignment: .firstTextBaseline) {
@@ -96,16 +99,22 @@ struct TeamView: View {
                 memberRow(members[i], isLeader: isLeader, tid: tid)
             }
 
-            // 开关
+            // 队伍设置：队长能改；其他人只看到状态，不给开关
             ToggleRow(title: "队伍聊天", subtitle: "队员之间收发队伍消息",
-                      on: chatOn) { on in
-                store.teamAct("chat", arg: on ? "on" : "off", team: tid)
+                      on: team.b("chatOn", true), editable: isLeader) { on in
+                store.teamAct("setting", arg: on ? "chat:on" : "chat:off", team: tid)
             }
-            if let land = team["land"] as? Bool {
-                ToggleRow(title: "共享领地", subtitle: "把队内领地开放给队员",
-                          on: land) { on in
-                    store.teamAct("land", team: tid, on: on)
-                }
+            ToggleRow(title: "加入需要申请", subtitle: "打开后新成员进队要你同意",
+                      on: team.b("applyNeeded", false), editable: isLeader) { on in
+                store.teamAct("setting", arg: on ? "apply:on" : "apply:off", team: tid)
+            }
+            ToggleRow(title: "队伍伤害", subtitle: "队员之间能不能互相攻击",
+                      on: team.b("friendlyFire", false), editable: isLeader) { on in
+                store.teamAct("setting", arg: on ? "friendly-fire:on" : "friendly-fire:off", team: tid)
+            }
+            ToggleRow(title: "共享领地", subtitle: "队内领地开放给所有队员",
+                      on: team.b("landShare", false), editable: isLeader) { on in
+                store.teamAct("land", team: tid, on: on)
             }
 
             if isLeader && !apps.isEmpty {
@@ -190,6 +199,14 @@ struct TeamView: View {
         .buttonStyle(PlainButtonStyle())
     }
 
+    /// 这个队伍我自己是不是已经在里面（多队玩家按 id 比）
+    private func joined(_ t: Map) -> Bool {
+        let id = t.s("id")
+        if id.isEmpty { return false }
+        for mine in store.myTeams where mine.s("id") == id { return true }
+        return false
+    }
+
     // MARK: 服务器上的队伍
 
     private var serverCard: some View {
@@ -218,8 +235,13 @@ struct TeamView: View {
                                 .font(.system(size: 11.5)).foregroundColor(DS.muted)
                         }
                         Spacer()
-                        smallButton(t.b("applyMode") ? "申请加入" : "加入", tint: accent) {
-                            store.teamAct(t.b("applyMode") ? "apply" : "join", arg: t.s("id"))
+                        if joined(t) {
+                            Text("已在队伍").font(.system(size: 12, weight: .medium))
+                                .foregroundColor(DS.muted)
+                        } else {
+                            smallButton(t.b("applyNeeded") ? "申请加入" : "加入", tint: accent) {
+                                store.teamAct(t.b("applyNeeded") ? "apply" : "join", arg: t.s("id"))
+                            }
                         }
                     }
                     .padding(.vertical, 6)
@@ -237,6 +259,7 @@ struct ToggleRow: View {
     let title: String
     let subtitle: String
     let on: Bool
+    var editable: Bool = true
     var changed: (Bool) -> Void
 
     var body: some View {
@@ -246,53 +269,18 @@ struct ToggleRow: View {
                 Text(subtitle).font(.system(size: 11.5)).foregroundColor(DS.muted)
             }
             Spacer()
-            Toggle("", isOn: Binding(get: { on }, set: { v in changed(v) }))
-                .labelsHidden()
+            if editable {
+                Toggle("", isOn: Binding(get: { on }, set: { v in changed(v) }))
+                    .labelsHidden()
+            } else {
+                Text(on ? "已开启" : "已关闭")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(on ? DS.green : Color.red)
+                    .padding(.horizontal, 9).padding(.vertical, 4)
+                    .background((on ? DS.green : Color.red).opacity(0.12))
+                    .clipShape(Capsule())
+            }
         }
         .padding(.vertical, 3)
-    }
-}
-
-/// 弹出一个单行输入框（iOS 13 的 alert 里不能放 TextField）
-struct PromptSheet: View {
-    let title: String
-    let hint: String
-    var onOK: (String) -> Void
-
-    @Environment(\.presentationMode) private var mode
-    @State private var text = ""
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(title).font(.system(size: 18, weight: .semibold))
-            TextField(hint, text: $text)
-                .padding(.horizontal, 12).padding(.vertical, 11)
-                .background(DS.chip)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .autocapitalization(.none)
-                .disableAutocorrection(true)
-            HStack(spacing: 10) {
-                Button { mode.wrappedValue.dismiss() } label: {
-                    Text("取消").frame(maxWidth: .infinity).padding(.vertical, 11)
-                        .background(DS.chip)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-                .buttonStyle(PlainButtonStyle())
-                Button {
-                    let t = text
-                    mode.wrappedValue.dismiss()
-                    onOK(t)
-                } label: {
-                    Text("确定").frame(maxWidth: .infinity).padding(.vertical, 11)
-                        .foregroundColor(.white)
-                        .background(Color(hex: 0x2E8BFF))
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-                .buttonStyle(PlainButtonStyle())
-            }
-            Spacer()
-        }
-        .padding(20)
-        .background(DS.bg.edgesIgnoringSafeArea(.all))
     }
 }

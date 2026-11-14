@@ -329,6 +329,21 @@ extension AppState {
         }
     }
 
+    /// 服务器插件版本与名字（/api/health 免加密）
+    func loadHealth() {
+        Task {
+            do {
+                let r = try await APIClient.shared.get("/api/health")
+                self.onMain {
+                    let v = r.s("version")
+                    if !v.isEmpty { self.serverVersion = v }
+                    let n = r.s("name")
+                    if !n.isEmpty { self.serverName = n }
+                }
+            } catch { }
+        }
+    }
+
     // MARK: - 小工具
 
     func loadMeSoon() {

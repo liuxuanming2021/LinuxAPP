@@ -13,19 +13,23 @@ struct MoreView: View {
                 display
                 theme
                 server
+                about
                 logoutButton
                 Spacer().frame(height: 90)
             }
             .padding(.horizontal, 16)
             .padding(.top, 6)
         }
+        .onAppear { store.loadHealth() }
     }
 
     private var account: some View {
         VStack(spacing: 0) {
             InfoRow(label: "登录账号", value: store.name)
             InfoRow(label: "服务器", value: store.serverText)
-            InfoRow(label: "玩家身份", value: store.role == "player" ? "玩家" : store.role)
+            InfoRow(label: "玩家身份", value: store.roleText)
+            InfoRow(label: "头衔", value: store.titleName.isEmpty ? "无" : Fmt.plain(store.titleName))
+            InfoRow(label: "队伍", value: store.teamName.isEmpty ? "无" : Fmt.plain(store.teamName))
             InfoRow(label: "连接加密", value: "已加密（AES-256-GCM）", accent: store.accent.color)
         }
         .padding(.horizontal, 16)
@@ -103,6 +107,23 @@ struct MoreView: View {
         .padding(16)
         .background(DS.card)
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    private var about: some View {
+        VStack(spacing: 0) {
+            InfoRow(label: "软件版本", value: appVersion)
+            InfoRow(label: "服务器插件", value: store.serverVersion.isEmpty ? "读取中…" : "\(store.serverName) \(store.serverVersion)")
+            InfoRow(label: "客户端", value: "原生 iOS（SwiftUI）")
+        }
+        .padding(.horizontal, 16)
+        .background(DS.card)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    private var appVersion: String {
+        let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
+        let b = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
+        return b.isEmpty ? v : "\(v)（\(b)）"
     }
 
     private var logoutButton: some View {

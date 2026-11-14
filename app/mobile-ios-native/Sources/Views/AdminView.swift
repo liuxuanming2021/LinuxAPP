@@ -94,10 +94,10 @@ struct AdminView: View {
                     let n = row.s("name")
                     Button(action: { detailName = n }) {
                         HStack(spacing: 8) {
-                            Text(roleIcon(row.s("role")))
+                            Text(roleIcon(row))
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(n).foregroundColor(DS.text)
-                                Text(row.s("role"))
+                                Text(AppState.roleLabel(row.s("role")))
                                     .font(.system(size: 11)).foregroundColor(DS.muted)
                             }
                             Spacer()
@@ -112,11 +112,13 @@ struct AdminView: View {
         .listStyle(GroupedListStyle())
     }
 
-    private func roleIcon(_ role: String) -> String {
-        if role.contains("副") { return "🎖" }
-        if role.contains("服主") { return "👑" }
-        if role.contains("管理员") { return "🛡" }
-        return "🔧"
+    private func roleIcon(_ row: Map) -> String {
+        switch row.i("rank") {
+        case 1: return "👑"
+        case 2: return "🎖"
+        case 3: return "🛡"
+        default: return "🔧"
+        }
     }
 
     // MARK: - 玩家
@@ -253,15 +255,18 @@ struct AdminView: View {
                 }
                 ForEach(store.penalties.indices, id: \.self) { i in
                     let p = store.penalties[i]
+                    let who = p.s("player")
                     HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(p.s("name")).font(.system(size: 14, weight: .semibold))
-                            Text("\(p.s("type")) \(p.s("reason"))")
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(who).font(.system(size: 14, weight: .semibold))
+                            Text("\(penaltyName(p.s("type"))) · \(p.s("reason"))")
+                                .font(.system(size: 11.5)).foregroundColor(DS.muted)
+                            Text("执行者 \(p.s("operator", "—")) · \(expireText(p))")
                                 .font(.system(size: 11)).foregroundColor(DS.muted)
                         }
                         Spacer()
                         Button("解除") {
-                            store.penalty(op: "release", type: p.s("type"), name: p.s("name"))
+                            store.penalty(op: "release", type: p.s("type"), name: who)
                         }
                         .font(.system(size: 13))
                     }
@@ -273,6 +278,24 @@ struct AdminView: View {
         }
         .listStyle(GroupedListStyle())
         .onAppear { store.loadPenalties() }
+    }
+
+    private func penaltyName(_ t: String) -> String {
+        switch t {
+        case "banmsg": return "禁言"
+        case "banmove": return "禁止移动"
+        case "banblock": return "禁止交互"
+        case "all": return "全部限制"
+        case "ban": return "封禁"
+        default: return t
+        }
+    }
+
+    /// 服务端给的是已经格式化好的字符串（"2026-11-14 15:20:18"），不是时间戳
+    private func expireText(_ p: Map) -> String {
+        let e = p.s("expire")
+        if e.isEmpty { return "永久" }
+        return "到期 " + e
     }
 
     // MARK: - 假人
@@ -401,27 +424,28 @@ struct PlayerDetailSheet: View {
                 }
 
                 Section(header: Text("惩罚")) {
-                    ForEach(penaltyTypes, id: \.0) { t in
+                    if activePenaltyKeys.isEmpty {
+                        Button("惩罚该玩家") { showPenalty = true }
+                            .font(.system(size: 15))
+                    } else {
                         HStack {
-                            Text(t.1)
+                            Text("生效中：\(activePenalties.joined(separator: "、"))")
+                                .font(.system(size: 13))
+                                .foregroundColor(Color.orange)
                             Spacer()
-                            if store.detailPenalties.b(t.0) {
-                                Text("生效中").font(.system(size: 12)).foregroundColor(Color.orange)
-                                Button("解除") {
-                                    store.penalty(op: "release", type: t.0, name: name)
-                                }.font(.system(size: 13))
-                            } else {
-                                Button("执行") {
-                                    showPenalty = true
-                                }.font(.system(size: 13))
+                        }
+                        Button("解除惩罚") {
+                            for t in activePenaltyKeys {
+                                store.penalty(op: "release", type: t, name: name)
                             }
                         }
-                    }
-                    Button("自定义惩罚（时长 / 原因）") {
-                        showPenalty = true
+                        .font(.system(size: 15))
+                        Button("再惩罚一次") { showPenalty = true }
+                            .font(.system(size: 15))
                     }
                     if store.canBan {
-                        Button("封禁 / 解封这个玩家") { showBan = true }
+                        Button(store.detail.b("banned") ? "解封这个玩家" : "封禁这个玩家") { showBan = true }
+                            .font(.system(size: 15))
                     }
                 }
 
@@ -430,8 +454,14 @@ struct PlayerDetailSheet: View {
                         ForEach(store.detailReports.indices, id: \.self) { i in
                         let r = store.detailReports[i]
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("#\(r.i("id")) \(r.s("reason"))").font(.system(size: 13))
-                                Text(r.s("time")).font(.system(size: 11)).foregroundColor(DS.muted)
+                                HStack {
+                                    Text("#\(r.i("id")) \(r.s("reason"))").font(.system(size: 13))
+                                    Spacer()
+                                    Text(reportLabel(r))
+                                        .font(.system(size: 11.5))
+                                        .foregroundColor(reportColor(r))
+                                }
+                                Text(reportMeta(r)).font(.system(size: 11)).foregroundColor(DS.muted)
                             }
                         }
                     }
@@ -470,6 +500,33 @@ struct PlayerDetailSheet: View {
             }
             .navigationViewStyle(StackNavigationViewStyle())
         }
+    }
+
+    private var activePenaltyKeys: [String] {
+        ["banmsg", "banmove", "banblock", "all"].filter { store.detailPenalties.b($0) }
+    }
+
+    private var activePenalties: [String] {
+        activePenaltyKeys.map { penaltyName($0) }
+    }
+
+    private func reportLabel(_ r: Map) -> String {
+        if !r.b("handled") { return "待处理" }
+        return r.s("result") == "reject" ? "已驳回" : "已接受"
+    }
+
+    private func reportColor(_ r: Map) -> Color {
+        if !r.b("handled") { return DS.muted }
+        return r.s("result") == "reject" ? Color.red : DS.green
+    }
+
+    private func reportMeta(_ r: Map) -> String {
+        var parts: [String] = [r.s("time")]
+        let h = r.s("handler")
+        if !h.isEmpty { parts.append("处理人 " + h) }
+        let n = r.s("note")
+        if !n.isEmpty { parts.append(n) }
+        return parts.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     private var penaltyTypes: [(String, String)] {

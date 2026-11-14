@@ -1,8 +1,7 @@
 import SwiftUI
+import UIKit
 
 /// 社交：公屏 / 队伍频道 / 队伍设置。
-/// 分段控件用系统 Picker(SegmentedPickerStyle)，消息区用倒置 ScrollView，
-/// 这样新消息永远贴着底部、来消息不用手动拉。
 struct ChatView: View {
     @EnvironmentObject var store: AppState
     @State private var tab = 0
@@ -88,6 +87,21 @@ struct ChatView: View {
             .background(DS.chip)
             .cornerRadius(10)
             .frame(maxWidth: .infinity, alignment: .center)
+        } else if mine(m) {
+            // 自己发的：靠右、主题色气泡
+            VStack(alignment: .trailing, spacing: 4) {
+                Text("我 · \(hm(m.time))\(tag(m.source))")
+                    .font(.system(size: 11))
+                    .foregroundColor(DS.muted)
+                Text(m.text)
+                    .font(.system(size: 14))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .background(store.accent.color)
+                    .cornerRadius(12)
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
         } else {
             VStack(alignment: .leading, spacing: 4) {
                 Text("\(m.name) · \(hm(m.time))\(tag(m.source))")
@@ -103,6 +117,11 @@ struct ChatView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    private func mine(_ m: ChatMessage) -> Bool {
+        !store.name.isEmpty &&
+            m.name.compare(store.name, options: .caseInsensitive) == .orderedSame
     }
 
     private func tag(_ source: String) -> String {
@@ -124,9 +143,9 @@ struct ChatView: View {
 
     private var inputBar: some View {
         HStack(spacing: 8) {
-            TextField("说点什么…", text: $draft)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .disableAutocorrection(true)
+            ChatInputField(text: $draft, placeholder: "说点什么…", onSend: send)
+                .frame(height: 36)
+
             Button(action: send) {
                 Text("发送")
                     .font(.system(size: 14, weight: .semibold))
@@ -153,8 +172,52 @@ struct ChatView: View {
     }
 
     private func send() {
-        let t = draft
+        let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return }
         draft = ""
         store.send(t)
+    }
+}
+
+/// 原生输入框：回车键就是「发送」，并且发送后能可靠清空（中文输入法也不会把拼音留下）。
+struct ChatInputField: UIViewRepresentable {
+    @Binding var text: String
+    var placeholder: String
+    var onSend: () -> Void
+
+    func makeUIView(context: Context) -> UITextField {
+        let f = UITextField()
+        f.placeholder = placeholder
+        f.borderStyle = .roundedRect
+        f.returnKeyType = .send
+        f.autocorrectionType = .no
+        f.autocapitalizationType = .none
+        f.font = UIFont.systemFont(ofSize: 15)
+        f.delegate = context.coordinator
+        f.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .editingChanged)
+        f.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        f.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return f
+    }
+
+    func updateUIView(_ ui: UITextField, context: Context) {
+        context.coordinator.parent = self
+        if ui.text != text { ui.text = text }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var parent: ChatInputField
+        init(_ p: ChatInputField) { parent = p }
+
+        @objc func changed(_ f: UITextField) {
+            parent.text = f.text ?? ""
+        }
+
+        func textFieldShouldReturn(_ f: UITextField) -> Bool {
+            parent.onSend()
+            return false
+        }
     }
 }

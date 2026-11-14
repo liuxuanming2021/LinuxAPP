@@ -29,24 +29,22 @@ struct MeView: View {
 
     private var header: some View {
         HStack(spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(accent.opacity(0.18))
-                Text(String(store.name.prefix(1)).uppercased())
-                    .font(.system(size: 26, weight: .bold))
-                    .foregroundColor(accent)
-            }
-            .frame(width: 62, height: 62)
+            SkinHead(name: store.name, uuid: store.uuid, size: 62, radius: 14)
 
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     Text(store.name).font(.system(size: 21, weight: .bold))
                     Circle().fill(store.online.contains(where: { $0.id == store.name }) ? DS.green : DS.muted)
                         .frame(width: 7, height: 7)
                 }
                 HStack(spacing: 6) {
-                    Tag(text: store.role == "player" ? "玩家" : store.role, tint: accent)
-                    if !store.teamName.isEmpty { Tag(text: store.teamName, tint: DS.muted) }
+                    Tag(text: store.roleText, tint: accent)
+                    if !store.teamName.isEmpty {
+                        Tag(text: Fmt.plain(store.teamName), tint: DS.muted)
+                    }
+                    if !store.titleName.isEmpty {
+                        Tag(text: Fmt.plain(store.titleName), tint: DS.muted)
+                    }
                 }
             }
             Spacer()
@@ -58,8 +56,8 @@ struct MeView: View {
 
     private var stats: some View {
         HStack(spacing: 10) {
-            StatCard(title: "金币", value: store.hasCoins ? shortNumber(store.coins) : "—")
-            StatCard(title: "点券", value: store.hasPoints ? "\(store.points)" : "—")
+            StatCard(title: "金币", value: store.hasCoins ? Fmt.short(store.coins) : "—")
+            StatCard(title: "点券", value: store.hasPoints ? Fmt.short(Double(store.points)) : "—")
             StatCard(title: "等级", value: "\(store.level)")
         }
     }
@@ -69,27 +67,38 @@ struct MeView: View {
             HStack {
                 Text("经验进度").font(.system(size: 16, weight: .semibold))
                 Spacer()
-                Text("\(store.expCurrent) / \(store.expNeeded) 经验")
-                    .font(.system(size: 12)).foregroundColor(DS.muted)
+                Text(expLabel).font(.system(size: 12)).foregroundColor(DS.muted)
             }
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(DS.chip)
                     Capsule().fill(accent)
-                        .frame(width: geo.size.width * progress)
+                        .frame(width: max(0, geo.size.width * progress))
                 }
             }
             .frame(height: 7)
-            Text("总经验 \(store.expCurrent)").font(.system(size: 12)).foregroundColor(DS.muted)
+            Text("总经验 \(Fmt.short(Double(store.expTotal)))")
+                .font(.system(size: 12)).foregroundColor(DS.muted)
         }
         .padding(16)
         .background(DS.card)
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
+    /// 服务端 exp 是 0~1 的小数，expToNext 是这一级需要的经验；满级时 expToNext = 0。
     private var progress: CGFloat {
-        guard store.expNeeded > 0 else { return 0 }
-        return min(1, CGFloat(store.expCurrent) / CGFloat(store.expNeeded))
+        if store.expNext <= 0 {
+            return store.expPct > 0 ? min(1, CGFloat(store.expPct)) : 0
+        }
+        return min(1, CGFloat(store.expInto) / CGFloat(store.expNext))
+    }
+
+    private var expLabel: String {
+        if store.expNext <= 0 {
+            return store.level <= 0 ? "还没有经验数据" : "已满级"
+        }
+        let pct = Int((progress * 100).rounded())
+        return "\(store.expInto) / \(store.expNext) 经验（\(pct)%）"
     }
 
     private var checkInCard: some View {
@@ -153,14 +162,20 @@ struct MeView: View {
                 Text("我提交的举报").font(.system(size: 13, weight: .semibold))
                 ForEach(store.myReports.prefix(6).indices, id: \.self) { i in
                     let r = store.myReports[i]
-                    HStack(alignment: .top, spacing: 8) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("#\(r.i("id")) \(r.s("target", "-"))")
-                                .font(.system(size: 13.5, weight: .medium))
-                            Text(r.s("reason")).font(.system(size: 11.5)).foregroundColor(DS.muted)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(alignment: .top, spacing: 8) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("#\(r.i("id")) \(r.s("target", "-"))")
+                                    .font(.system(size: 13.5, weight: .medium))
+                                Text(r.s("reason")).font(.system(size: 11.5)).foregroundColor(DS.muted)
+                            }
+                            Spacer()
+                            Tag(text: reportState(r), tint: reportTint(r))
                         }
-                        Spacer()
-                        Tag(text: reportState(r), tint: r.b("handled") ? DS.green : DS.muted)
+                        if r.b("handled") {
+                            Text(reportFooter(r))
+                                .font(.system(size: 11)).foregroundColor(DS.muted)
+                        }
                     }
                     .padding(.vertical, 4)
                 }
@@ -173,13 +188,21 @@ struct MeView: View {
 
     private func reportState(_ r: Map) -> String {
         if !r.b("handled") { return "待处理" }
-        return r.s("result") == "reject" ? "已驳回" : "已受理"
+        return r.s("result") == "reject" ? "已驳回" : "已接受"
     }
 
-    private func shortNumber(_ v: Double) -> String {
-        if v >= 1_000_000 { return String(format: "%.1fM", v / 1_000_000) }
-        if v >= 1_000 { return String(format: "%.0f", v) }
-        return String(format: "%.0f", v)
+    private func reportTint(_ r: Map) -> Color {
+        if !r.b("handled") { return DS.muted }
+        return r.s("result") == "reject" ? Color.red : DS.green
+    }
+
+    private func reportFooter(_ r: Map) -> String {
+        let who = r.s("handler")
+        let note = r.s("note")
+        var parts: [String] = []
+        if !who.isEmpty { parts.append("处理人 \(who)") }
+        if !note.isEmpty { parts.append(note) }
+        return parts.isEmpty ? "已处理" : parts.joined(separator: " · ")
     }
 }
 
@@ -190,7 +213,10 @@ struct StatCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title).font(.system(size: 12)).foregroundColor(DS.muted)
-            Text(value).font(.system(size: 20, weight: .bold)).lineLimit(1)
+            Text(value)
+                .font(.system(size: 20, weight: .bold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
@@ -206,6 +232,7 @@ struct Tag: View {
     var body: some View {
         Text(text)
             .font(.system(size: 11.5, weight: .medium))
+            .lineLimit(1)
             .padding(.horizontal, 9).padding(.vertical, 4)
             .background(tint.opacity(0.13))
             .foregroundColor(tint)

@@ -36,8 +36,10 @@ final class AppState: ObservableObject {
     @Published var teamName: String = ""
     @Published var hasCoins = false
     @Published var hasPoints = false
-    @Published var expCurrent = 0
-    @Published var expNeeded = 0
+    @Published var expPct: Double = 0      // 0~1，当前等级内的进度
+    @Published var expInto = 0             // 当前等级已获得的经验
+    @Published var expNext = 0             // 升到下一级需要的经验
+    @Published var expTotal = 0            // 总经验
     @Published var checkInDays = 0
     @Published var signedToday = false
     @Published var signStreak = 0
@@ -59,6 +61,13 @@ final class AppState: ObservableObject {
     @Published var activeTitle = ""
     @Published var titleUnlocked = 0
     @Published var titleTotal = 0
+
+    // 头像 / 身份 / 头衔 / 服务器版本
+    @Published var uuid = ""
+    @Published var titleName = ""
+    @Published var teamTag = ""
+    @Published var serverVersion = ""
+    @Published var serverName = "LinuxAPP"
 
     // 队伍
     @Published var teamId = ""
@@ -90,6 +99,23 @@ final class AppState: ObservableObject {
 
     // 转账
     @Published var transferAvailable = false
+
+    /// 角色英文 key → 中文（服务端 login 返回的是 owner / coowner / admin / moderator / player）
+    var roleText: String { AppState.roleLabel(role) }
+
+    /// 服务端有的地方给英文 key（owner/coowner/…），有的地方已经给中文，统一翻成中文
+    static func roleLabel(_ raw: String) -> String {
+        let t = raw.trimmingCharacters(in: .whitespaces)
+        switch t.lowercased() {
+        case "owner", "su": return "服主"
+        case "coowner", "co-owner": return "副服主"
+        case "mayor": return "市长"
+        case "admin": return "管理员"
+        case "moderator": return "协管"
+        case "player": return "玩家"
+        default: return t.isEmpty ? "玩家" : t
+        }
+    }
 
     var canManage: Bool { caps["view"] == true }
     var canMute: Bool { caps["mute"] == true }
@@ -198,6 +224,7 @@ final class AppState: ObservableObject {
         await loadMe()
         await loadChat()
         await loadOnline()
+        loadHealth()
     }
 
     func loadMe() async {
@@ -206,6 +233,14 @@ final class AppState: ObservableObject {
             let r = try await APIClient.shared.get("/api/me")
             self.onMain { self.parseMe(r) }
         } catch { }
+    }
+
+    /// JSON 里的数字可能是 Int 也可能是 Double，统一转 Double
+    private func num(_ v: Any?) -> Double {
+        if let d = v as? Double { return d }
+        if let i = v as? Int { return Double(i) }
+        if let n = v as? NSNumber { return n.doubleValue }
+        return 0
     }
 
     private func parseMe(_ r: [String: Any]) {
@@ -217,11 +252,14 @@ final class AppState: ObservableObject {
         if let p = d["points"] as? Int { points = p; hasPoints = true }
         if let l = d["level"] as? Int { level = l }
         if let t = d["team"] as? String { teamName = t }
+        if let t2 = d["teamTag"] as? String { teamTag = t2 }
+        if let u = d["uuid"] as? String { uuid = u }
+        if let tn = d["titleName"] as? String { titleName = tn }
         if let days = d["checkInDays"] as? Int { checkInDays = days }
-        if let e = d["exp"] as? [String: Any] {
-            expCurrent = (e["current"] as? Int) ?? 0
-            expNeeded = (e["needed"] as? Int) ?? 0
-        }
+        expPct = num(d["exp"])
+        expInto = Int(num(d["expIntoLevel"]))
+        expNext = Int(num(d["expToNext"]))
+        expTotal = Int(num(d["totalExp"]))
     }
 
     func loadCheckIn() async {

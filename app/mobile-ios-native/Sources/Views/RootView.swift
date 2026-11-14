@@ -91,11 +91,11 @@ struct RootView: View {
                                 .background(Color.black.opacity(0.84))
                                 .cornerRadius(14)
                                 .padding(.horizontal, 28)
-                                .padding(.top, 10)
+                                .padding(.bottom, 14)
                                 .transition(.opacity)
                         }
                     },
-                    alignment: .top
+                    alignment: .bottom
                 )
             } else {
                 LoginView()
