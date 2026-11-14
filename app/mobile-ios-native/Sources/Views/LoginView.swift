@@ -35,7 +35,7 @@ struct LoginView: View {
                     }
 
                     Button {
-                        Task { await store.login(name: name, password: password) }
+                        Task { store.login(name: name, password: password) { _ in } }
                     } label: {
                         Text(store.busy ? "登录中…" : "登录")
                             .font(.system(size: 16, weight: .semibold))

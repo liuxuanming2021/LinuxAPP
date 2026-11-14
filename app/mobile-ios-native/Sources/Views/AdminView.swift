@@ -32,7 +32,7 @@ struct AdminView: View {
                     Text("现在没人在线").font(.system(size: 13)).foregroundColor(DS.muted)
                         .padding(.vertical, 26)
                 } else {
-                    ForEach(store.online) { p in
+                    ForEach(store.online, id: \.id) { p in
                         HStack {
                             Circle().fill(DS.green).frame(width: 7, height: 7)
                             Text(p.name).font(.system(size: 15))

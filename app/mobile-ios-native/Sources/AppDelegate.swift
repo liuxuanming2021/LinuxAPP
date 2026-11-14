@@ -1,4 +1,5 @@
 import UIKit
+import SwiftUI
 
 @UIApplicationMain
 final class AppDelegate: UIResponder, UIApplicationDelegate {

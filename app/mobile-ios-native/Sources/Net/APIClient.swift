@@ -32,7 +32,7 @@ final class APIClient {
     // MARK: - 握手
 
     func handshake() async throws {
-        guard let base = base else { throw APIError.noServer }
+        guard base != nil else { throw APIError.noServer }
 
         if privKey == nil {
             privKey = try makeRSAKey()
