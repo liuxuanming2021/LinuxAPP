@@ -61,6 +61,7 @@ final class AppState: ObservableObject {
     @Published var titleTotal = 0
 
     // 队伍
+    @Published var teamId = ""
     @Published var teamAvailable = false
     @Published var myTeams: [Map] = []
     @Published var serverTeams: [Map] = []
@@ -79,6 +80,9 @@ final class AppState: ObservableObject {
     @Published var fakes: [Map] = []
     @Published var fakeSettings: Map = [:]
     @Published var fakesAvailable = false
+    @Published var staff: [Map] = []
+    @Published var suOutput = ""
+    @Published var suOk = true
 
     // 玩家侧举报
     @Published var myReports: [Map] = []
@@ -260,8 +264,24 @@ final class AppState: ObservableObject {
     func loadChat() async {
         guard loggedIn else { return }
         do {
-            let q = channel == "world" ? "/api/chat?since=0&limit=80"
-                                       : "/api/chat?channel=team&since=0&limit=80"
+            var q = "/api/chat?since=0&limit=80"
+            if channel == "team" {
+                if teamId.isEmpty {
+                    // 还没拿到队伍 id 就先问一次，队伍频道必须带 team 参数
+                    if let t = try? await APIClient.shared.get("/api/team") {
+                        let first = (t.a("myTeams").first)?.s("id") ?? ""
+                        let tid = first
+                        self.onMain { self.teamId = tid; self.myTeams = t.a("myTeams") }
+                        if tid.isEmpty { self.onMain { self.messages = [] }; return }
+                        q += "&channel=team&team=" + tid
+                    } else {
+                        self.onMain { self.messages = [] }
+                        return
+                    }
+                } else {
+                    q += "&channel=team&team=" + teamId
+                }
+            }
             let r = try await APIClient.shared.get(q)
             guard let arr = r["messages"] as? [[String: Any]] else { return }
             let list: [ChatMessage] = arr.compactMap { m in
@@ -296,7 +316,7 @@ final class AppState: ObservableObject {
         guard !t.isEmpty else { return }
         Task {
             do {
-                _ = try await APIClient.shared.post("/api/chat", ["text": t, "channel": channel])
+                _ = try await APIClient.shared.post("/api/chat", ["text": t, "channel": channel, "team": teamId])
                 await self.loadChat()
             } catch {
                 self.onMain { self.errorText = error.localizedDescription }
@@ -305,11 +325,17 @@ final class AppState: ObservableObject {
     }
 
     private var timer: Timer?
+    private var ticks = 0
     private func startPolling() {
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+        ticks = 0
+        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             guard let self = self else { return }
-            Task { await self.loadChat() }
+            Task {
+                await self.loadChat()
+                self.ticks += 1
+                if self.ticks % 3 == 0 { await self.loadOnline() }
+            }
         }
     }
 }

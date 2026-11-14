@@ -1,111 +1,141 @@
 import SwiftUI
 import Combine
 
+/// 根视图：登录后是系统 TabView + NavigationView。
+/// 底部标签栏、顶部导航栏全部是苹果原生控件（iOS 26 上系统自动渲染成液态玻璃）。
 struct RootView: View {
     @EnvironmentObject var store: AppState
     @State private var tab = 0
-    @State private var toastVisible = false
+    @State private var toastOn = false
     @State private var toastWork: DispatchWorkItem?
-
-    private var accent: Color { store.accent.color }
 
     var body: some View {
         Group {
             if store.loggedIn {
-                ZStack(alignment: .bottom) {
-                    DS.bg.edgesIgnoringSafeArea(.all)
-
-                    Group {
-                        switch tab {
-                        case 0: MeView()
-                        case 1: ChatView()
-                        case 2: TitlesView()
-                        case 3: AdminView()
-                        default: MoreView()
-                        }
+                TabView(selection: $tab) {
+                    NavigationView {
+                        MeView()
+                            .navigationBarTitle(Text("我的数据"), displayMode: .inline)
+                            .navigationBarItems(trailing: refreshButton)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(.top, 54)
+                    .navigationViewStyle(StackNavigationViewStyle())
+                    .tabItem {
+                        Image(systemName: "person.fill")
+                        Text("我的")
+                    }
+                    .tag(0)
 
-                    GlassTabBar(tab: $tab, items: tabs, accent: accent)
-                        .padding(.bottom, 8)
+                    NavigationView {
+                        ChatView()
+                            .navigationBarTitle(Text("社交"), displayMode: .inline)
+                            .navigationBarItems(trailing: refreshButton)
+                    }
+                    .navigationViewStyle(StackNavigationViewStyle())
+                    .tabItem {
+                        Image(systemName: "bubble.left.and.bubble.right.fill")
+                        Text("社交")
+                    }
+                    .tag(1)
 
-                    // 顶部玻璃导航条：后加的在最上层
-                    VStack(spacing: 0) {
-                        GlassNavBar(title: pageTitle, caption: pageCaption, accent: accent,
-                                    onRefresh: refreshNow)
-                            .padding(.horizontal, 14)
-                            .padding(.top, 4)
-                        if toastVisible {
+                    NavigationView {
+                        TitlesView()
+                            .navigationBarTitle(Text("头衔"), displayMode: .inline)
+                            .navigationBarItems(trailing: refreshButton)
+                    }
+                    .navigationViewStyle(StackNavigationViewStyle())
+                    .tabItem {
+                        Image(systemName: "rosette")
+                        Text("头衔")
+                    }
+                    .tag(2)
+
+                    if store.canManage {
+                        NavigationView {
+                            AdminView()
+                                .navigationBarTitle(Text("服务器管理"), displayMode: .inline)
+                                .navigationBarItems(trailing: refreshButton)
+                        }
+                        .navigationViewStyle(StackNavigationViewStyle())
+                        .tabItem {
+                            Image(systemName: "hammer.fill")
+                            Text("管理")
+                        }
+                        .tag(3)
+                    }
+
+                    NavigationView {
+                        MoreView()
+                            .navigationBarTitle(Text("更多"), displayMode: .inline)
+                            .navigationBarItems(trailing: refreshButton)
+                    }
+                    .navigationViewStyle(StackNavigationViewStyle())
+                    .tabItem {
+                        Image(systemName: "ellipsis")
+                        Text("更多")
+                    }
+                    .tag(4)
+                }
+                .accentColor(store.accent.color)
+                .onReceive(store.$toastSeq) { seq in
+                    if seq > 0 { showToast() }
+                }
+                .overlay(
+                    Group {
+                        if toastOn {
                             Text(store.toastText)
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundColor(.white)
-                                .padding(.horizontal, 14).padding(.vertical, 9)
-                                .background(Color.black.opacity(0.82))
-                                .clipShape(Capsule())
-                                .padding(.top, 8)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 10)
+                                .background(Color.black.opacity(0.84))
+                                .cornerRadius(14)
+                                .padding(.horizontal, 28)
+                                .padding(.top, 10)
                                 .transition(.opacity)
                         }
-                        Spacer()
-                    }
-                }
-                .onReceive(store.$toastSeq) { _ in showToast() }
+                    },
+                    alignment: .top
+                )
             } else {
                 LoginView()
             }
         }
     }
 
+    private var refreshButton: some View {
+        Button(action: refreshNow) {
+            Image(systemName: "arrow.clockwise")
+        }
+    }
+
     private func showToast() {
         toastWork?.cancel()
-        withAnimation(.easeOut(duration: 0.18)) { toastVisible = true }
+        withAnimation(.easeOut(duration: 0.18)) { toastOn = true }
         let work = DispatchWorkItem {
-            withAnimation(.easeIn(duration: 0.2)) { self.toastVisible = false }
+            withAnimation(.easeIn(duration: 0.2)) { toastOn = false }
         }
         toastWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: work)
-    }
-
-    private var pageTitle: String {
-        let t = tabs[min(tab, tabs.count - 1)].1
-        switch t {
-        case "我的": return "我的数据"
-        case "社交": return "社交"
-        case "头衔": return "头衔"
-        case "管理": return "服务器管理"
-        default:     return "更多"
-        }
-    }
-
-    private var pageCaption: String {
-        switch pageTitle {
-        case "我的数据": return store.name.isEmpty ? "服务器上的你" : store.name
-        case "社交":     return "公屏 / 队伍频道 / 队伍"
-        case "头衔":     return "LinuxTitle"
-        case "服务器管理": return "在线 / 玩家 / 举报 / 惩罚 / 假人"
-        default:         return "设置 / 接口地址 / 关于"
-        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.1, execute: work)
     }
 
     private func refreshNow() {
         switch tab {
-        case 0: store.loadMeSoon(); store.loadMyReports(); Task { await store.loadCheckIn() }
-        case 1: Task { await store.loadChat() }; store.loadTeam()
-        case 2: store.loadTitles()
-        case 3: Task { await store.loadOnline() }
-        default: store.loadMeSoon()
+        case 0:
+            store.loadMeSoon()
+            store.loadMyReports()
+            Task { await store.loadCheckIn() }
+        case 1:
+            Task { await store.loadChat() }
+            store.loadTeam()
+        case 2:
+            store.loadTitles()
+        case 3:
+            Task { await store.loadOnline() }
+            store.loadStaff()
+        default:
+            store.loadMeSoon()
         }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-    }
-
-    private var tabs: [(String, String)] {
-        var t: [(String, String)] = [
-            ("person.fill", "我的"),
-            ("bubble.left.and.bubble.right.fill", "社交"),
-            ("ticket.fill", "头衔")
-        ]
-        if store.canManage { t.append(("hammer.fill", "管理")) }
-        t.append(("ellipsis", "更多"))
-        return t
     }
 }

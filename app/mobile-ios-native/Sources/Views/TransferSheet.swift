@@ -29,7 +29,12 @@ struct TransferSheet: View {
                 .buttonStyle(PlainButtonStyle())
             }
 
-            Segmented(titles: ["金币", "点券"], index: Binding(get: { type }, set: { type = $0 }), accent: accent)
+            Picker("", selection: $type) {
+                Text("金币").tag(0)
+                Text("点券").tag(1)
+            }
+            .pickerStyle(SegmentedPickerStyle())
+            .labelsHidden()
 
             Text(balanceText())
                 .font(.system(size: 13)).foregroundColor(DS.muted)

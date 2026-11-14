@@ -1,158 +1,160 @@
 import SwiftUI
 
+/// 社交：公屏 / 队伍频道 / 队伍设置。
+/// 分段控件用系统 Picker(SegmentedPickerStyle)，消息区用倒置 ScrollView，
+/// 这样新消息永远贴着底部、来消息不用手动拉。
 struct ChatView: View {
     @EnvironmentObject var store: AppState
     @State private var tab = 0
     @State private var draft = ""
     @State private var showTransfer = false
 
-    private var accent: Color { store.accent.color }
-
     var body: some View {
-        VStack(spacing: 10) {
-            header
+        VStack(spacing: 8) {
+            Picker("", selection: tabBinding) {
+                Text("公屏").tag(0)
+                Text("队伍频道").tag(1)
+                Text("队伍").tag(2)
+            }
+            .pickerStyle(SegmentedPickerStyle())
+            .labelsHidden()
+            .padding(.horizontal, 16)
+            .padding(.top, 6)
+
             if tab == 2 {
-                TeamView()
+                ScrollView(.vertical, showsIndicators: true) {
+                    TeamView()
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 12)
+                }
             } else {
-                messages
+                messageList
                 inputBar
             }
-            Spacer(minLength: 78)
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 6)
         .sheet(isPresented: $showTransfer) {
             TransferSheet().environmentObject(self.store)
         }
         .onAppear {
-            store.channel = "world"
+            store.channel = (tab == 1) ? "team" : "world"
+            store.loadTeam()
             Task { await store.loadChat() }
         }
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(tab == 2 ? "队伍" : "服务器公屏")
-                    .font(.system(size: 17, weight: .semibold))
-                Spacer()
-                Text("\(store.online.count) 人在线")
-                    .font(.system(size: 12)).foregroundColor(DS.muted)
-            }
-            Segmented(titles: ["公屏", "队伍频道", "队伍"], index: tabBinding, accent: accent)
-        }
-        .padding(14)
-        .background(DS.card)
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-    }
-
-    /// iOS 13 没有 onChange(of:)，用带副作用的 Binding 代替
     private var tabBinding: Binding<Int> {
         Binding(get: { tab }, set: { v in
             tab = v
-            store.channel = v == 1 ? "team" : "world"
+            switch v {
+            case 0: store.channel = "world"
+            case 1: store.channel = "team"
+            default: break
+            }
             if v != 2 { Task { await store.loadChat() } }
         })
     }
 
-    private var messages: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(store.messages) { m in
-                    if m.source == "notice" {
-                        HStack { Spacer()
-                            Text(m.text).font(.system(size: 12)).foregroundColor(DS.muted)
-                                .padding(.horizontal, 12).padding(.vertical, 6)
-                                .background(DS.chip).clipShape(Capsule())
-                            Spacer()
-                        }
-                    } else {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("\(m.name) · \(fileTime(m.time))\(suffix(m.source))")
-                                .font(.system(size: 11.5)).foregroundColor(DS.muted)
-                            Text(m.text)
-                                .font(.system(size: 14.5))
-                                .padding(.horizontal, 13).padding(.vertical, 10)
-                                .background(DS.card)
-                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+    // MARK: 消息
+
+    private var messageList: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 10) {
+                ForEach(store.messages.reversed()) { m in
+                    row(m)
+                        .rotationEffect(.radians(.pi))
+                        .scaleEffect(x: -1, y: 1, anchor: .center)
                 }
             }
-            .padding(.bottom, 6)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .rotationEffect(.radians(.pi))
+        .scaleEffect(x: -1, y: 1, anchor: .center)
+        .background(DS.bg)
     }
 
-    private var inputBar: some View {
-        HStack(spacing: 8) {
-            TextField("说点什么…", text: $draft)
-                .padding(.horizontal, 14).padding(.vertical, 12)
-                .background(DS.card)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .autocapitalization(.none)
-                .disableAutocorrection(true)
-
-            Button {
-                let t = draft
-                draft = ""
-                store.send(t)
-            } label: {
-                Text("发送").font(.system(size: 15, weight: .semibold))
-                    .padding(.horizontal, 16).padding(.vertical, 12)
-                    .background(accent).foregroundColor(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    @ViewBuilder
+    private func row(_ m: ChatMessage) -> some View {
+        if m.name.isEmpty {
+            // 上下线之类的系统提示：居中灰胶囊，后面带时间
+            HStack(spacing: 6) {
+                Text(m.text).font(.system(size: 12))
+                Text(hm(m.time)).font(.system(size: 11)).foregroundColor(DS.muted)
             }
-            .buttonStyle(PlainButtonStyle())
-
-            Button {
-                showTransfer = true
-            } label: {
-                Text("转账").font(.system(size: 15, weight: .semibold))
+            .foregroundColor(DS.muted)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(DS.chip)
+            .cornerRadius(10)
+            .frame(maxWidth: .infinity, alignment: .center)
+        } else {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("\(m.name) · \(hm(m.time))\(tag(m.source))")
+                    .font(.system(size: 11))
+                    .foregroundColor(DS.muted)
+                Text(m.text)
+                    .font(.system(size: 14))
                     .foregroundColor(DS.text)
-                    .padding(.horizontal, 14).padding(.vertical, 12)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
                     .background(DS.card)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .cornerRadius(12)
             }
-            .buttonStyle(PlainButtonStyle())
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private func suffix(_ source: String) -> String {
+    private func tag(_ source: String) -> String {
         switch source {
-        case "link": return " · FS1安卓端"
         case "app": return " · App"
-        case "console": return ""
+        case "link": return " · FS1安卓端"
+        case "console": return " · 控制台"
         default: return " · 游戏"
         }
     }
 
-    private func fileTime(_ d: Date) -> String {
+    private func hm(_ d: Date) -> String {
         let f = DateFormatter()
         f.dateFormat = "HH:mm"
         return f.string(from: d)
     }
-}
 
-struct TeamEmptyView: View {
-    @EnvironmentObject var store: AppState
-    private var accent: Color { store.accent.color }
+    // MARK: 输入条
 
-    var body: some View {
-        VStack(spacing: 12) {
-            if store.teamName.isEmpty {
-                Text("还没有队伍").font(.system(size: 16, weight: .semibold))
-                Text("到网页版或游戏里建队，这里会显示队伍信息")
-                    .font(.system(size: 13)).foregroundColor(DS.muted)
-            } else {
-                Text(store.teamName).font(.system(size: 20, weight: .bold))
-                Text("队伍频道里的消息只发给队内成员")
-                    .font(.system(size: 13)).foregroundColor(DS.muted)
+    private var inputBar: some View {
+        HStack(spacing: 8) {
+            TextField("说点什么…", text: $draft)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .disableAutocorrection(true)
+            Button(action: send) {
+                Text("发送")
+                    .font(.system(size: 14, weight: .semibold))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
             }
+            .background(store.accent.color)
+            .foregroundColor(.white)
+            .cornerRadius(9)
+            .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            Button(action: { showTransfer = true }) {
+                Text("转账")
+                    .font(.system(size: 14, weight: .semibold))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+            }
+            .background(DS.chip)
+            .foregroundColor(DS.text)
+            .cornerRadius(9)
         }
-        .frame(maxWidth: .infinity)
-        .padding(28)
-        .background(DS.card)
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
+    }
+
+    private func send() {
+        let t = draft
+        draft = ""
+        store.send(t)
     }
 }
