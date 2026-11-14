@@ -7,6 +7,7 @@ on:
     paths:
       - 'app/mobile/**'
       - 'app/mobile-ios12/**'
+      - 'app/mobile-ios-native/**'
       - '.github/workflows/app-build.yml'
 
 jobs:
@@ -204,4 +205,48 @@ jobs:
           path: |
             Nalxer-*-ios12-unsigned.ipa
             Nalxer-*-ios12-adhoc.ipa
+          if-no-files-found: warn
+
+  # 原生 SwiftUI 端（iOS 13+，液态玻璃导航），用 XcodeGen 生成工程再编译
+  ios-native:
+    name: iOS 原生（SwiftUI）未签名 ipa
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 XcodeGen
+        run: brew install xcodegen
+
+      - name: 生成 Xcode 工程
+        working-directory: app/mobile-ios-native
+        run: xcodegen generate && ls -la
+
+      - name: 编译（未签名）
+        working-directory: app/mobile-ios-native
+        run: |
+          set -o pipefail
+          xcodebuild             -project LinuxAPP.xcodeproj             -scheme LinuxAPP             -configuration Release             -sdk iphoneos             -destination 'generic/platform=iOS'             -derivedDataPath build             CODE_SIGN_IDENTITY=""             CODE_SIGNING_REQUIRED=NO             CODE_SIGNING_ALLOWED=NO             build 2>&1 | tee build.log | tail -n 120
+
+      - name: 打成未签名 ipa
+        run: |
+          APP="app/mobile-ios-native/build/Build/Products/Release-iphoneos/LinuxAPP.app"
+          ls -la "$(dirname "$APP")" || true
+          if [ -d "$APP" ]; then
+            mkdir -p payload/Payload
+            cp -R "$APP" payload/Payload/
+            cd payload && zip -qry "$GITHUB_WORKSPACE/LinuxAPP-ios-native-unsigned.ipa" Payload
+            cd .. && unzip -l "$GITHUB_WORKSPACE/LinuxAPP-ios-native-unsigned.ipa" | head -20
+          else
+            echo "没找到 LinuxAPP.app"
+            exit 1
+          fi
+
+      - name: 编译失败时把日志带出来
+        if: failure()
+        run: tail -n 200 app/mobile-ios-native/build.log || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LinuxAPP-ios-native-ipa
+          path: LinuxAPP-ios-native-unsigned.ipa
           if-no-files-found: warn
