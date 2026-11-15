@@ -214,6 +214,15 @@ struct AdminView: View {
 
     private var casesTab: some View {
         List {
+            Section(header: Text("生效中的惩罚（\(store.penalties.count)）")) {
+                if store.penalties.isEmpty {
+                    Text("现在没有生效中的惩罚").foregroundColor(DS.muted)
+                }
+                ForEach(store.penalties.indices, id: \.self) { i in
+                    penaltyRow(store.penalties[i])
+                }
+            }
+
             Section {
                 Picker("", selection: Binding(get: { store.reportFilter }, set: { f in
                     store.reportFilter = f
@@ -232,15 +241,6 @@ struct AdminView: View {
                 }
                 ForEach(store.adminReports.indices, id: \.self) { i in
                     reportRow(store.adminReports[i])
-                }
-            }
-
-            Section(header: Text("生效中的惩罚（\(store.penalties.count)）")) {
-                if store.penalties.isEmpty {
-                    Text("现在没有生效中的惩罚").foregroundColor(DS.muted)
-                }
-                ForEach(store.penalties.indices, id: \.self) { i in
-                    penaltyRow(store.penalties[i])
                 }
             }
         }
