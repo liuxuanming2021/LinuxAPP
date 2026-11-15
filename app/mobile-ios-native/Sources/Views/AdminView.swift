@@ -376,7 +376,7 @@ struct AdminView: View {
                 spawnRow(world, cat.element[0], cat.element[1])
             }
             Button(action: { store.cleanSpawn(world: world.s("name")) }) {
-                Text("清理这个世界的自然怪物").foregroundColor(DS.accent)
+                Text("清理这个世界的自然怪物").foregroundColor(store.accent.color)
             }
         }
     }
@@ -401,10 +401,10 @@ struct AdminView: View {
     private var spawnActions: some View {
         Section {
             Button(action: { cleanEverything() }) {
-                Text("全部世界各清理一次").foregroundColor(DS.accent)
+                Text("全部世界各清理一次").foregroundColor(store.accent.color)
             }
             Button(action: { store.reloadSpawn() }) {
-                Text("让 LinuxSpawn 重读 config.yml").foregroundColor(DS.accent)
+                Text("让 LinuxSpawn 重读 config.yml").foregroundColor(store.accent.color)
             }
         }
     }
