@@ -13,11 +13,13 @@ struct AdminView: View {
     @State private var newFake = ""
     @State private var fakeName: String? = nil
     @State private var cmd = ""
+    @State private var spawnEdit: SpawnEdit? = nil
 
     /// 页签按权限给：假人要 fake 权限，控制台要 su（只有服主）。协管只看到前四个。
     private var tabs: [String] {
         var list = ["在线", "玩家", "举报", "惩罚"]
         if store.canFake { list.append("假人") }
+        if store.canManage { list.append("刷怪") }
         if store.canSu { list.append("控制台") }
         if store.isSuperUser { list.append("插件") }
         return list
@@ -67,6 +69,7 @@ struct AdminView: View {
         else if current == "举报" { reportsTab }
         else if current == "惩罚" { penaltiesTab }
         else if current == "假人" { fakesTab }
+        else if current == "刷怪" { spawnTab }
         else if current == "控制台" { consoleTab }
         else { LinuxTab().environmentObject(store) }
     }
@@ -82,6 +85,8 @@ struct AdminView: View {
             store.loadPenalties()
         case "假人":
             store.loadFakes()
+        case "刷怪":
+            store.loadSpawn()
         case "插件":
             store.loadLinux()
         default:
@@ -322,6 +327,104 @@ struct AdminView: View {
         let e = p.s("expire")
         if e.isEmpty { return "永久" }
         return "到期 " + e
+    }
+
+    // MARK: - 刷怪（LinuxSpawn 联动）
+
+    private var spawnWorlds: [Map] {
+        store.spawnInfo.a("worlds").map { $0 as? Map ?? [:] }.filter { !$0.isEmpty }
+    }
+
+    private var spawnTab: some View {
+        List {
+            if !store.spawnAvailable {
+                Section {
+                    Text("服务器没装 LinuxSpawn，或者版本低于 26.11.16（没有联动接口）")
+                        .foregroundColor(DS.muted)
+                }
+            } else {
+                Section(header: Text("总览")) {
+                    InfoRow(label: "接管状态", value: store.spawnInfo.b("enabled") ? "已接管原版刷怪" : "已关闭")
+                    InfoRow(label: "服务器 TPS", value: String(format: "%.1f", store.spawnInfo.d("tps")))
+                    InfoRow(label: "单 tick 上限", value: "\(store.spawnInfo.i("maxCycles")) 轮")
+                    InfoRow(label: "低 TPS 保护",
+                            value: store.spawnInfo.b("safetyEnabled")
+                                ? "低于 \(store.spawnInfo.d("minTps")) 自动暂停补刷" : "已关闭")
+                    InfoRow(label: "自动清理",
+                            value: cellCleaner())
+                }
+
+                ForEach(Array(spawnWorlds.enumerated()), id: \.offset) { item in
+                    let world = item.element
+                    Section(header: Text(spawnHeader(world)), footer: Text(spawnFooter(world))) {
+                        ForEach(Array(spawnCategories.enumerated()), id: \.offset) { cat in
+                            Button(action: { spawnEdit = SpawnEdit(world: world.s("name"),
+                                                                    category: cat.element[0],
+                                                                    label: cat.element[1],
+                                                                    value: mul(world, cat.element[0])) }) {
+                                HStack {
+                                    Text(cat.element[1]).foregroundColor(DS.text)
+                                    Spacer()
+                                    Text(spawnValue(mul(world, cat.element[0])))
+                                        .foregroundColor(DS.text2)
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 12)).foregroundColor(DS.muted)
+                                }
+                            }
+                        }
+                        Button(action: { store.cleanSpawn(world: world.s("name")) }) {
+                            Text("清理这个世界的自然怪物").foregroundColor(DS.accent)
+                        }
+                    }
+                }
+
+                Section {
+                    Button(action: { for w in spawnWorlds { store.cleanSpawn(world: w.s("name")) } }) {
+                        Text("全部世界各清理一次").foregroundColor(DS.accent)
+                    }
+                    Button(action: { store.reloadSpawn() }) {
+                        Text("让 LinuxSpawn 重读 config.yml").foregroundColor(DS.accent)
+                    }
+                }
+            }
+        }
+        .listStyle(GroupedListStyle())
+        .sheet(item: Binding(get: { spawnEdit }, set: { spawnEdit = $0 })) { edit in
+            SpawnEditSheet(edit: edit).environmentObject(store)
+        }
+    }
+
+    private var spawnCategories: [[String]] {
+        [["monster", "怪物"], ["creature", "动物"], ["water-creature", "水生"], ["ambient", "环境"]]
+    }
+
+    private func mul(_ world: Map, _ key: String) -> Double {
+        world.m("multipliers").d(key, 1.0)
+    }
+
+    private func spawnValue(_ value: Double) -> String {
+        value == value.rounded() ? String(format: "%.0f ×", value) : String(format: "%.2f ×", value)
+    }
+
+    private func cellCleaner() -> String {
+        let cleaner = store.spawnInfo.m("cleaner")
+        if !cleaner.b("auto") { return "已关闭" }
+        let left = cleaner.i("remaining")
+        return "每 \(cleaner.i("interval")) 秒，剩 \(left < 0 ? 0 : left) 秒"
+    }
+
+    private func spawnHeader(_ world: Map) -> String {
+        let name = world.s("name")
+        let managed = world.b("managed") ? "接管中" : "不接管"
+        return "\(name) · \(managed) · \(world.i("players")) 人在线"
+    }
+
+    private func spawnFooter(_ world: Map) -> String {
+        let stats = world.m("stats").m("monster")
+        if stats.isEmpty { return "" }
+        return "怪物：每秒 \(String(format: "%.2f", stats.d("cyclesPerSecond"))) 轮原版循环，"
+            + "生成 \(String(format: "%.2f", stats.d("mobsPerSecond"))) 只/秒，"
+            + "单轮 \(String(format: "%.2f", stats.d("millisPerCycle"))) ms"
     }
 
     // MARK: - 假人
@@ -657,5 +760,51 @@ func penaltyTitle(_ t: String) -> String {
     case "all": return "全部限制"
     case "ban": return "封禁"
     default: return t
+    }
+}
+
+/// 改倍率用得着的三个字段
+struct SpawnEdit: Identifiable {
+    let world: String
+    let category: String
+    let label: String
+    let value: Double
+    var id: String { world + "/" + category }
+}
+
+/// 改一个「世界 × 类别」的倍率（系统 Form + TextField）
+struct SpawnEditSheet: View {
+    @EnvironmentObject var store: AppState
+    @Environment(\.presentationMode) var presentation
+    let edit: SpawnEdit
+
+    @State private var text: String
+
+    init(edit: SpawnEdit) {
+        self.edit = edit
+        _text = State(initialValue: edit.value == edit.value.rounded()
+                      ? String(format: "%.0f", edit.value) : String(format: "%.2f", edit.value))
+    }
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("\(edit.world) 的\(edit.label)")) {
+                    TextField("倍率，1 = 原版，0 = 不刷", text: $text)
+                        .keyboardType(.decimalPad)
+                }
+                Section(footer: Text("1.0 = 原版频率，2.0 = 两倍，0.5 = 一半，0 = 该类别完全不刷。"
+                                     + "改完立即生效，配置会写回 LinuxSpawn 的 config.yml。")) {
+                    Button("保存") {
+                        let value = Double(text.trimmingCharacters(in: .whitespaces)) ?? 1.0
+                        store.setSpawn(world: edit.world, category: edit.category, value: value)
+                        presentation.wrappedValue.dismiss()
+                    }
+                }
+            }
+            .navigationBarTitle("刷怪倍率", displayMode: .inline)
+            .navigationBarItems(leading: Button("取消") { presentation.wrappedValue.dismiss() })
+        }
+        .navigationViewStyle(StackNavigationViewStyle())
     }
 }

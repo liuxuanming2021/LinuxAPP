@@ -379,4 +379,50 @@ extension AppState {
     func esc(_ s: String) -> String {
         s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s
     }
+
+    // MARK: - LinuxSpawn（刷怪频率，服务器可选联动）
+
+    func loadSpawn() {
+        Task {
+            do {
+                let r = try await APIClient.shared.get("/api/admin/spawn")
+                self.onMain {
+                    self.spawnAvailable = r.b("available")
+                    self.spawnInfo = r.m("data")
+                }
+            } catch { self.toast(NetMsg.zh(error)) }
+        }
+    }
+
+    func setSpawn(world: String, category: String, value: Double) {
+        Task {
+            do {
+                let r = try await APIClient.shared.post("/api/admin/spawn", [
+                    "action": "set", "world": world, "category": category, "value": value
+                ])
+                self.onMain {
+                    self.toast(r.s("message", "已改"))
+                    self.spawnInfo = r.m("data")
+                }
+            } catch { self.toast(NetMsg.zh(error)) }
+        }
+    }
+
+    func cleanSpawn(world: String) {
+        Task {
+            do {
+                let r = try await APIClient.shared.post("/api/admin/spawn", ["action": "clean", "world": world])
+                self.onMain { self.toast(r.s("message", "已开始清理")) }
+            } catch { self.toast(NetMsg.zh(error)) }
+        }
+    }
+
+    func reloadSpawn() {
+        Task {
+            do {
+                let r = try await APIClient.shared.post("/api/admin/spawn", ["action": "reload"])
+                self.onMain { self.toast(r.s("message", "已重载")) }
+            } catch { self.toast(NetMsg.zh(error)) }
+        }
+    }
 }

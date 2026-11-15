@@ -108,6 +108,8 @@ final class AppState: ObservableObject {
     @Published var fakeGamemode = "CREATIVE"
     @Published var fakeInvuln = false
     @Published var fakesAvailable = false
+    @Published var spawnAvailable = false
+    @Published var spawnInfo: Map = [:]
     @Published var staff: [Map] = []
     @Published var tabIndex = 0
     // 多服务器（最多 5 台，可切换）
