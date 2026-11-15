@@ -343,55 +343,79 @@ struct AdminView: View {
                         .foregroundColor(DS.muted)
                 }
             } else {
-                Section(header: Text("总览")) {
-                    InfoRow(label: "接管状态", value: store.spawnInfo.b("enabled") ? "已接管原版刷怪" : "已关闭")
-                    InfoRow(label: "服务器 TPS", value: String(format: "%.1f", store.spawnInfo.d("tps")))
-                    InfoRow(label: "单 tick 上限", value: "\(store.spawnInfo.i("maxCycles")) 轮")
-                    InfoRow(label: "低 TPS 保护",
-                            value: store.spawnInfo.b("safetyEnabled")
-                                ? "低于 \(store.spawnInfo.d("minTps")) 自动暂停补刷" : "已关闭")
-                    InfoRow(label: "自动清理",
-                            value: cellCleaner())
-                }
-
-                ForEach(Array(spawnWorlds.enumerated()), id: \.offset) { item in
-                    let world = item.element
-                    Section(header: Text(spawnHeader(world)), footer: Text(spawnFooter(world))) {
-                        ForEach(Array(spawnCategories.enumerated()), id: \.offset) { cat in
-                            Button(action: { spawnEdit = SpawnEdit(world: world.s("name"),
-                                                                    category: cat.element[0],
-                                                                    label: cat.element[1],
-                                                                    value: mul(world, cat.element[0])) }) {
-                                HStack {
-                                    Text(cat.element[1]).foregroundColor(DS.text)
-                                    Spacer()
-                                    Text(spawnValue(mul(world, cat.element[0])))
-                                        .foregroundColor(DS.text2)
-                                    Image(systemName: "chevron.right")
-                                        .font(.system(size: 12)).foregroundColor(DS.muted)
-                                }
-                            }
-                        }
-                        Button(action: { store.cleanSpawn(world: world.s("name")) }) {
-                            Text("清理这个世界的自然怪物").foregroundColor(DS.accent)
-                        }
-                    }
-                }
-
-                Section {
-                    Button(action: { for w in spawnWorlds { store.cleanSpawn(world: w.s("name")) } }) {
-                        Text("全部世界各清理一次").foregroundColor(DS.accent)
-                    }
-                    Button(action: { store.reloadSpawn() }) {
-                        Text("让 LinuxSpawn 重读 config.yml").foregroundColor(DS.accent)
-                    }
-                }
+                spawnSummary
+                spawnWorldSections
+                spawnActions
             }
         }
         .listStyle(GroupedListStyle())
         .sheet(item: Binding(get: { spawnEdit }, set: { spawnEdit = $0 })) { edit in
             SpawnEditSheet(edit: edit).environmentObject(store)
         }
+    }
+
+    private var spawnSummary: some View {
+        Section(header: Text("总览")) {
+            InfoRow(label: "接管状态", value: store.spawnInfo.b("enabled") ? "已接管原版刷怪" : "已关闭")
+            InfoRow(label: "服务器 TPS", value: String(format: "%.1f", store.spawnInfo.d("tps")))
+            InfoRow(label: "单 tick 上限", value: "\(store.spawnInfo.i("maxCycles")) 轮")
+            InfoRow(label: "低 TPS 保护", value: safetyText())
+            InfoRow(label: "自动清理", value: cellCleaner())
+        }
+    }
+
+    private var spawnWorldSections: some View {
+        ForEach(Array(spawnWorlds.enumerated()), id: \.offset) { item in
+            spawnSection(item.element)
+        }
+    }
+
+    private func spawnSection(_ world: Map) -> some View {
+        Section(header: Text(spawnHeader(world)), footer: Text(spawnFooter(world))) {
+            ForEach(Array(spawnCategories.enumerated()), id: \.offset) { cat in
+                spawnRow(world, cat.element[0], cat.element[1])
+            }
+            Button(action: { store.cleanSpawn(world: world.s("name")) }) {
+                Text("清理这个世界的自然怪物").foregroundColor(DS.accent)
+            }
+        }
+    }
+
+    private func spawnRow(_ world: Map, _ key: String, _ label: String) -> some View {
+        Button(action: {
+            spawnEdit = SpawnEdit(world: world.s("name"),
+                                  category: key,
+                                  label: label,
+                                  value: mul(world, key))
+        }) {
+            HStack {
+                Text(label).foregroundColor(DS.text)
+                Spacer()
+                Text(spawnValue(mul(world, key))).foregroundColor(DS.text2)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12)).foregroundColor(DS.muted)
+            }
+        }
+    }
+
+    private var spawnActions: some View {
+        Section {
+            Button(action: { cleanEverything() }) {
+                Text("全部世界各清理一次").foregroundColor(DS.accent)
+            }
+            Button(action: { store.reloadSpawn() }) {
+                Text("让 LinuxSpawn 重读 config.yml").foregroundColor(DS.accent)
+            }
+        }
+    }
+
+    private func cleanEverything() {
+        for w in spawnWorlds { store.cleanSpawn(world: w.s("name")) }
+    }
+
+    private func safetyText() -> String {
+        if !store.spawnInfo.b("safetyEnabled") { return "已关闭" }
+        return "低于 \(store.spawnInfo.d("minTps")) 自动暂停补刷"
     }
 
     private var spawnCategories: [[String]] {
