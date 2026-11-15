@@ -7,6 +7,7 @@ struct AdminView: View {
 
     @State private var tab = 0
     @State private var query = ""
+    @State private var searchMode = false
     @State private var detailName: String? = nil
     @State private var reportSheet: Map? = nil
     @State private var reportNote = ""
@@ -15,9 +16,9 @@ struct AdminView: View {
     @State private var cmd = ""
     @State private var spawnEdit: SpawnEdit? = nil
 
-    /// 页签按权限给：假人要 fake 权限，控制台要 su（只有服主）。协管只看到前四个。
+    /// 页签按权限给：假人要 fake 权限，控制台要 su（只有服主）。协管看到前两个。
     private var tabs: [String] {
-        var list = ["在线", "玩家", "举报", "惩罚"]
+        var list = ["玩家", "举报与惩罚"]
         if store.canFake { list.append("假人") }
         if store.canManage { list.append("刷怪") }
         if store.canSu { list.append("控制台") }
@@ -64,10 +65,8 @@ struct AdminView: View {
 
     @ViewBuilder
     private var content: some View {
-        if current == "在线" { onlineTab }
-        else if current == "玩家" { playersTab }
-        else if current == "举报" { reportsTab }
-        else if current == "惩罚" { penaltiesTab }
+        if current == "玩家" { playersTab }
+        else if current == "举报与惩罚" { casesTab }
         else if current == "假人" { fakesTab }
         else if current == "刷怪" { spawnTab }
         else if current == "控制台" { consoleTab }
@@ -76,12 +75,11 @@ struct AdminView: View {
 
     private func range() {
         switch current {
-        case "在线":
+        case "玩家":
             Task { await store.loadOnline() }
             store.loadStaff()
-        case "举报":
+        case "举报与惩罚":
             store.loadAdminReports()
-        case "惩罚":
             store.loadPenalties()
         case "假人":
             store.loadFakes()
@@ -94,53 +92,113 @@ struct AdminView: View {
         }
     }
 
-    // MARK: - 在线
+    // MARK: - 玩家（搜索 / 在线 / 管理层）
 
-    private var onlineTab: some View {
+    private var playersTab: some View {
         List {
-            Section(header: Text("在线玩家（\(store.online.count)）")) {
-                if store.online.isEmpty {
-                    Text("现在没人在线").foregroundColor(DS.muted)
-                }
-                ForEach(store.online) { p in
-                    Button(action: { detailName = p.id }) {
-                        HStack {
-                            Circle().fill(DS.green).frame(width: 8, height: 8)
-                            Text(p.id).foregroundColor(DS.text)
-                            Spacer()
-                            Text(AppState.roleLabel(p.role)).font(.system(size: 12)).foregroundColor(DS.muted)
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 12)).foregroundColor(DS.muted)
-                        }
+            Section {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 13))
+                        .foregroundColor(DS.muted)
+                    TextField("搜玩家名字", text: $query)
+                        .disableAutocorrection(true)
+                        .autocapitalization(.none)
+                    if searchMode {
+                        Button("返回") { exitSearch() }
+                            .font(.system(size: 14))
+                    } else {
+                        Button("搜索") { enterSearch() }
+                            .font(.system(size: 14))
+                            .disabled(query.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
                 }
             }
 
-            Section(header: Text("管理层（\(store.staff.count) 人，在不在线都列）")) {
-                if store.staff.isEmpty {
-                    Text("没拿到管理层名单").foregroundColor(DS.muted)
+            if searchMode {
+                Section(header: Text("搜索结果（\(store.searchResults.count)）")) {
+                    if store.searchResults.isEmpty {
+                        Text("没有找到这个名字").foregroundColor(DS.muted)
+                    }
+                    ForEach(store.searchResults.indices, id: \.self) { i in
+                        searchRow(store.searchResults[i])
+                    }
                 }
-                ForEach(store.staff.indices, id: \.self) { i in
-                    let row = store.staff[i]
-                    let n = row.s("name")
-                    Button(action: { detailName = n }) {
-                        HStack(spacing: 8) {
-                            Text(roleIcon(row))
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(n).foregroundColor(DS.text)
-                                Text(AppState.roleLabel(row.s("role")))
-                                    .font(.system(size: 11)).foregroundColor(DS.muted)
+            } else {
+                Section(header: Text("在线玩家（\(store.online.count)）")) {
+                    if store.online.isEmpty {
+                        Text("现在没人在线").foregroundColor(DS.muted)
+                    }
+                    ForEach(store.online) { p in
+                        Button(action: { detailName = p.id }) {
+                            HStack {
+                                Circle().fill(DS.green).frame(width: 8, height: 8)
+                                Text(p.id).foregroundColor(DS.text)
+                                Spacer()
+                                Text(AppState.roleLabel(p.role))
+                                    .font(.system(size: 12)).foregroundColor(DS.muted)
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 12)).foregroundColor(DS.muted)
                             }
-                            Spacer()
-                            Text(row.b("online") ? "在线" : "离线")
-                                .font(.system(size: 12))
-                                .foregroundColor(row.b("online") ? DS.green : DS.muted)
+                        }
+                    }
+                }
+
+                Section(header: Text("管理层（\(store.staff.count) 人，在不在线都列）")) {
+                    if store.staff.isEmpty {
+                        Text("没拿到管理层名单").foregroundColor(DS.muted)
+                    }
+                    ForEach(store.staff.indices, id: \.self) { i in
+                        let row = store.staff[i]
+                        let n = row.s("name")
+                        Button(action: { detailName = n }) {
+                            HStack(spacing: 8) {
+                                Text(roleIcon(row))
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(n).foregroundColor(DS.text)
+                                    Text(AppState.roleLabel(row.s("role")))
+                                        .font(.system(size: 11)).foregroundColor(DS.muted)
+                                }
+                                Spacer()
+                                Text(row.b("online") ? "在线" : "离线")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(row.b("online") ? DS.green : DS.muted)
+                            }
                         }
                     }
                 }
             }
         }
         .listStyle(GroupedListStyle())
+    }
+
+    private func searchRow(_ r: Map) -> some View {
+        let n = r.s("name")
+        return Button(action: { detailName = n }) {
+            HStack {
+                Text(n).foregroundColor(DS.text)
+                Spacer()
+                if r.b("banned") {
+                    Text("已封禁").font(.system(size: 11)).foregroundColor(.red)
+                }
+                Text(r.b("online") ? "在线" : "离线")
+                    .font(.system(size: 12))
+                    .foregroundColor(r.b("online") ? DS.green : DS.muted)
+            }
+        }
+    }
+
+    private func enterSearch() {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        if q.isEmpty { return }
+        searchMode = true
+        store.searchPlayers(q)
+    }
+
+    private func exitSearch() {
+        searchMode = false
+        query = ""
+        store.searchResults = []
     }
 
     private func roleIcon(_ row: Map) -> String {
@@ -152,47 +210,9 @@ struct AdminView: View {
         }
     }
 
-    // MARK: - 玩家
+    // MARK: - 举报与惩罚
 
-    private var playersTab: some View {
-        List {
-            Section {
-                HStack {
-                    TextField("搜玩家名字", text: $query)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .disableAutocorrection(true)
-                        .autocapitalization(.none)
-                    Button("搜") { store.searchPlayers(query) }
-                }
-            }
-            Section(header: Text("搜索结果（\(store.searchResults.count)）")) {
-                if store.searchResults.isEmpty {
-                    Text("输入名字搜一下").foregroundColor(DS.muted)
-                }
-                ForEach(store.searchResults.indices, id: \.self) { i in
-                    let r = store.searchResults[i]
-                    let n = r.s("name")
-                    Button(action: { detailName = n }) {
-                        HStack {
-                            Text(n).foregroundColor(DS.text)
-                            Spacer()
-                            if r.b("banned") {
-                                Text("已封禁").font(.system(size: 11)).foregroundColor(.red)
-                            }
-                            Text(r.b("online") ? "在线" : "离线")
-                                .font(.system(size: 12))
-                                .foregroundColor(r.b("online") ? DS.green : DS.muted)
-                        }
-                    }
-                }
-            }
-        }
-        .listStyle(GroupedListStyle())
-    }
-
-    // MARK: - 举报
-
-    private var reportsTab: some View {
+    private var casesTab: some View {
         List {
             Section {
                 Picker("", selection: Binding(get: { store.reportFilter }, set: { f in
@@ -205,49 +225,83 @@ struct AdminView: View {
                 }
                 .pickerStyle(SegmentedPickerStyle())
             }
-            Section(header: Text("共 \(store.reportTotal) 条 · 已处理 \(store.reportHandled)")) {
+
+            Section(header: Text("举报 · 共 \(store.reportTotal) 条 · 已处理 \(store.reportHandled)")) {
                 if store.adminReports.isEmpty {
                     Text("没有举报").foregroundColor(DS.muted)
                 }
                 ForEach(store.adminReports.indices, id: \.self) { i in
-                    let r = store.adminReports[i]
-                    let handled = r.b("handled")
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text("#\(r.i("id")) \(r.s("target"))")
-                                .font(.system(size: 14, weight: .semibold))
-                            Spacer()
-                            Text(handled ? "已处理" : "待处理")
-                                .font(.system(size: 11))
-                                .foregroundColor(handled ? DS.muted : Color.orange)
-                        }
-                        Text(r.s("reason")).font(.system(size: 13)).foregroundColor(DS.text)
-                        Text("\(r.s("reporter")) · \(r.s("time"))")
-                            .font(.system(size: 11)).foregroundColor(DS.muted)
-                        if handled, !r.s("note").isEmpty {
-                            Text("处理说明：\(r.s("note"))")
-                                .font(.system(size: 11)).foregroundColor(DS.muted)
-                        }
-                        if !handled {
-                            HStack(spacing: 14) {
-                                Button("受理") {
-                                    reportNote = ""
-                                    reportSheet = r
-                                }
-                                Button("驳回") {
-                                    reportNote = ""
-                                    reportSheet = r
-                                }
-                            }
-                            .font(.system(size: 13))
-                        }
-                    }
-                    .padding(.vertical, 2)
+                    reportRow(store.adminReports[i])
+                }
+            }
+
+            Section(header: Text("生效中的惩罚（\(store.penalties.count)）")) {
+                if store.penalties.isEmpty {
+                    Text("现在没有生效中的惩罚").foregroundColor(DS.muted)
+                }
+                ForEach(store.penalties.indices, id: \.self) { i in
+                    penaltyRow(store.penalties[i])
                 }
             }
         }
         .listStyle(GroupedListStyle())
-        .onAppear { store.loadAdminReports(store.reportFilter) }
+        .onAppear {
+            store.loadAdminReports(store.reportFilter)
+            store.loadPenalties()
+        }
+    }
+
+    private func reportRow(_ r: Map) -> some View {
+        let handled = r.b("handled")
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("#\(r.i("id")) \(r.s("target"))")
+                    .font(.system(size: 14, weight: .semibold))
+                Spacer()
+                Text(handled ? "已处理" : "待处理")
+                    .font(.system(size: 11))
+                    .foregroundColor(handled ? DS.muted : Color.orange)
+            }
+            Text(r.s("reason")).font(.system(size: 13)).foregroundColor(DS.text)
+            Text("\(r.s("reporter")) · \(r.s("time"))")
+                .font(.system(size: 11)).foregroundColor(DS.muted)
+            if handled, !r.s("note").isEmpty {
+                Text("处理说明：\(r.s("note"))")
+                    .font(.system(size: 11)).foregroundColor(DS.muted)
+            }
+            if !handled {
+                HStack(spacing: 16) {
+                    Button("受理") {
+                        reportNote = ""
+                        reportSheet = r
+                    }
+                    Button("驳回") {
+                        reportNote = ""
+                        reportSheet = r
+                    }
+                }
+                .font(.system(size: 13))
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func penaltyRow(_ p: Map) -> some View {
+        let who = p.s("player")
+        return HStack {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(who).font(.system(size: 14, weight: .semibold))
+                Text("\(penaltyName(p.s("type"))) · \(p.s("reason"))")
+                    .font(.system(size: 11.5)).foregroundColor(DS.muted)
+                Text("执行者 \(p.s("operator", "—")) · \(expireText(p))")
+                    .font(.system(size: 11)).foregroundColor(DS.muted)
+            }
+            Spacer()
+            Button("解除") {
+                store.penalty(op: "release", type: p.s("type"), name: who)
+            }
+            .font(.system(size: 13))
+        }
     }
 
     private func handleSheet(_ row: Map) -> some View {
@@ -274,41 +328,6 @@ struct AdminView: View {
             .navigationBarTitle(Text("处理举报"), displayMode: .inline)
         }
         .navigationViewStyle(StackNavigationViewStyle())
-    }
-
-    // MARK: - 惩罚
-
-    private var penaltiesTab: some View {
-        List {
-            Section(header: Text("生效中的惩罚（\(store.penalties.count)）")) {
-                if store.penalties.isEmpty {
-                    Text("现在没有生效中的惩罚").foregroundColor(DS.muted)
-                }
-                ForEach(store.penalties.indices, id: \.self) { i in
-                    let p = store.penalties[i]
-                    let who = p.s("player")
-                    HStack {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(who).font(.system(size: 14, weight: .semibold))
-                            Text("\(penaltyName(p.s("type"))) · \(p.s("reason"))")
-                                .font(.system(size: 11.5)).foregroundColor(DS.muted)
-                            Text("执行者 \(p.s("operator", "—")) · \(expireText(p))")
-                                .font(.system(size: 11)).foregroundColor(DS.muted)
-                        }
-                        Spacer()
-                        Button("解除") {
-                            store.penalty(op: "release", type: p.s("type"), name: who)
-                        }
-                        .font(.system(size: 13))
-                    }
-                }
-            }
-            Section {
-                Button("刷新惩罚列表") { store.loadPenalties() }
-            }
-        }
-        .listStyle(GroupedListStyle())
-        .onAppear { store.loadPenalties() }
     }
 
     private func penaltyName(_ t: String) -> String {
