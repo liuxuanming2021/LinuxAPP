@@ -1431,3 +1431,14 @@ body[data-skin="miuix"] #f-team-name {
 .srv-row input { width: 100%; box-sizing: border-box; margin-top: 6px; padding: 10px 12px; border-radius: 12px;
   border: 1px solid var(--card-b); background: var(--bg-soft); color: var(--text); font-size: 14px; }
 .srv-pick { width: 100%; }
+
+/* 禁言提示条：游戏里被禁言时，聊天输入条整条消失，换成这一行 */
+.chat-muted {
+  margin: 8px 0 4px;
+  padding: 11px 14px;
+  border-radius: 12px;
+  background: var(--chip, rgba(120, 128, 145, .12));
+  color: var(--muted, #8a919e);
+  font-size: 13px;
+  text-align: center;
+}

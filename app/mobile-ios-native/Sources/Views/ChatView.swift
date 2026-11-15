@@ -24,7 +24,11 @@ struct ChatView: View {
                 TeamView()
             } else {
                 messageList
-                inputBar
+                if store.muted {
+                    mutedBar
+                } else {
+                    inputBar
+                }
             }
         }
         .sheet(isPresented: $showTransfer) {
@@ -180,12 +184,31 @@ struct ChatView: View {
         .padding(.bottom, 8)
     }
 
+    private var mutedBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "speaker.slash.fill")
+                .font(.system(size: 13))
+                .foregroundColor(DS.muted)
+            Text(store.muteText)
+                .font(.system(size: 13))
+                .foregroundColor(DS.muted)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(DS.chip)
+        .cornerRadius(10)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
+    }
+
     private func hideKeyboard() {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
                                         to: nil, from: nil, for: nil)
     }
 
     private func send() {
+        if store.muted { store.toast(store.muteText); return }
         let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
         draft = ""

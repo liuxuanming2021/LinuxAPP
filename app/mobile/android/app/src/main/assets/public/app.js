@@ -45,6 +45,10 @@
     lastAdminTab: 'player',
     me: null,
     chatLast: 0,
+    muted: false,
+    muteLeft: 0,
+    mutePermanent: false,
+    muteTick: 0,
     chatMsgs: [],
     chatChannel: 'world',
     chatScrollPending: false,
@@ -1228,6 +1232,7 @@
         switchPage(want);
       }
       applyOwnerPanels();
+      applyMute(d);
       state.me = d.data;
       renderMe(d.data);
       renderIdentity(d.data);
@@ -1509,6 +1514,7 @@
       var d = r.data || {};
       if (!d.ok) return;
       $('chat-online').textContent = (d.online || 0) + ' 人在线';
+      applyMute(d);
       state.chatFetchFailed = false;
       // 服务器重启过（id 从头开始）：之前攒的全作废，从 0 重来
       if (d.reset) {
@@ -1587,6 +1593,58 @@
     return (state.myTeams || []).filter(function (t) { return t.chatOn !== false; });
   }
 
+  // ── 禁言：游戏里被禁言，App 里也不能说话 ──────────────
+  function applyMute(src) {
+    if (!src) return;
+    if (typeof src.muted !== 'undefined') state.muted = src.muted === true;
+    if (typeof src.muteLeft !== 'undefined') state.muteLeft = Number(src.muteLeft) || 0;
+    if (typeof src.mutePermanent !== 'undefined') state.mutePermanent = src.mutePermanent === true;
+    if (state.muted && !state.mutePermanent && state.muteLeft > 0) {
+      state.muteUntil = Date.now() + state.muteLeft * 1000;
+    } else {
+      state.muteUntil = 0;
+    }
+    renderMute();
+  }
+
+  function muteLeftNow() {
+    if (state.mutePermanent) return -1;
+    if (!state.muteUntil) return state.muteLeft;
+    var left = Math.round((state.muteUntil - Date.now()) / 1000);
+    if (left <= 0) { state.muted = false; state.muteUntil = 0; return 0; }
+    return left;
+  }
+
+  function muteLeftText(sec) {
+    if (sec < 0) return '永久';
+    if (sec >= 3600) {
+      var h = Math.floor(sec / 3600), m = Math.ceil((sec % 3600) / 60);
+      return h + ' 小时' + (m ? ' ' + m + ' 分钟' : '');
+    }
+    if (sec >= 60) {
+      var mm = Math.floor(sec / 60), ss = sec % 60;
+      return mm + ' 分' + (ss ? ' ' + ss + ' 秒' : '');
+    }
+    return sec + ' 秒';
+  }
+
+  function renderMute() {
+    var box = $('chat-muted');
+    if (!box) return;
+    if (!state.muted) {
+      box.classList.add('hidden');
+      var bar0 = document.querySelector('.chat-input-bar');
+      if (bar0) bar0.classList.remove('hidden');
+      renderChatChannels();
+      return;
+    }
+    var left = muteLeftNow();
+    box.textContent = left < 0 ? '你已被禁言，剩余时间：永久' : '你已被禁言，剩余时间：' + muteLeftText(left);
+    box.classList.remove('hidden');
+    var bar = document.querySelector('.chat-input-bar');
+    if (bar) bar.classList.add('hidden');
+  }
+
   function renderChatChannels() {
     // 队长关掉的队伍聊天，对应的队伍频道要整段消失
     var usable = chatTeams();
@@ -1607,7 +1665,7 @@
     $('chat-title').textContent = manage ? '队伍' : (team ? '队伍频道' : '服务器公屏');
     $('f-chat').placeholder = team ? '和队友说点什么…' : '说点什么…';
     $('chat-list').classList.toggle('hidden', manage);
-    document.querySelector('.chat-input-bar').classList.toggle('hidden', manage);
+    document.querySelector('.chat-input-bar').classList.toggle('hidden', manage || state.muted);
     if ($('chat-team-view')) $('chat-team-view').classList.add('hidden');
     if ($('team-manage')) $('team-manage').classList.toggle('hidden', !manage);
     if ($('chat-online')) $('chat-online').classList.toggle('hidden', manage);
@@ -1964,6 +2022,7 @@
   }
 
   function sendChat() {
+    if (state.muted) { renderMute(); toast('你已被禁言，现在不能说话'); return; }
     state.chatScrollPending = true;
     var input = $('f-chat');
     var text = input.value.trim();
@@ -2764,7 +2823,15 @@
 
   // ── 定时刷新 ─────────────────────────────────────────
 
+  function startMuteTicker() {
+    if (state.muteTick) return;
+    state.muteTick = setInterval(function () {
+      if (state.muted) renderMute();
+    }, 1000);
+  }
+
   function startTimers() {
+    startMuteTicker();
     stopTimers();
     state.timer = setInterval(function () {
       if (state.page === 'me') { loadMe(); loadMyReports(); }

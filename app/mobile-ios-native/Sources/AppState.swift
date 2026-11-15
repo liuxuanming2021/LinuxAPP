@@ -85,6 +85,53 @@ final class AppState: ObservableObject {
     @Published var serverVersion = ""
     @Published var serverName = "LinuxAPP"
 
+    // 禁言（游戏里被禁言，App 里也不能说话）
+    @Published var muted = false
+    @Published var mutePermanent = false
+    @Published var muteLeft = 0          // 剩余秒数（服务端给的那一刻）
+    @Published var muteUntil: Date?      // 本地换算出的解禁时间
+
+    /// 现在的剩余秒数；<0 表示永久
+    var muteRemaining: Int {
+        if !muted { return 0 }
+        if mutePermanent { return -1 }
+        guard let until = muteUntil else { return muteLeft }
+        return max(0, Int(until.timeIntervalSinceNow.rounded()))
+    }
+
+    var muteText: String {
+        let left = muteRemaining
+        if left < 0 { return "你已被禁言，剩余时间：永久" }
+        if left <= 0 { return "你已被禁言" }
+        if left >= 3600 {
+            let h = left / 3600
+            let m = Int(ceil(Double(left % 3600) / 60.0))
+            return "你已被禁言，剩余时间：" + String(h) + " 小时" + (m > 0 ? " " + String(m) + " 分钟" : "")
+        }
+        if left >= 60 {
+            let m = left / 60
+            let sec = left % 60
+            return "你已被禁言，剩余时间：" + String(m) + " 分" + (sec > 0 ? " " + String(sec) + " 秒" : "")
+        }
+        return "你已被禁言，剩余时间：" + String(left) + " 秒"
+    }
+
+    func applyMute(_ r: [String: Any]) {
+        let m = (r["muted"] as? Bool) ?? false
+        let perm = (r["mutePermanent"] as? Bool) ?? false
+        let left = num(r["muteLeft"])
+        self.onMain {
+            self.muted = m
+            self.mutePermanent = perm
+            self.muteLeft = Int(left)
+            if m && !perm && left > 0 {
+                self.muteUntil = Date().addingTimeInterval(left)
+            } else {
+                self.muteUntil = nil
+            }
+        }
+    }
+
     // 队伍
     @Published var teamId = ""
     @Published var teamAvailable = false
@@ -314,6 +361,7 @@ final class AppState: ObservableObject {
         expInto = Int(num(d["expIntoLevel"]))
         expNext = Int(num(d["expToNext"]))
         expTotal = Int(num(d["totalExp"]))
+        applyMute(r)
     }
 
     func loadCheckIn() async {
@@ -378,6 +426,7 @@ final class AppState: ObservableObject {
                 }
             }
             let r = try await APIClient.shared.get(q)
+            applyMute(r)
             guard let arr = r["messages"] as? [[String: Any]] else { return }
             let list: [ChatMessage] = arr.compactMap { m in
                 guard let id = m["id"] as? Int else { return nil }
