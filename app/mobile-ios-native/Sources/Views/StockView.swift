@@ -93,8 +93,9 @@ struct StockView: View {
                 row("余额", Fmt.money(store.stockData.d("balance")))
                 row("持仓市值", Fmt.money(store.stockData.d("holdValue")))
                 row("浮动盈亏", store.stockData.s("pnlText"))
-                row("保证金 / 借款", Fmt.money(store.stockData.d("margin")) + " / " + Fmt.money(store.stockData.d("loan")))
-                row("杠杆 / 维持比例", "\(store.stockData.i("leverage")) 倍 / " + String(format: "%.2f", store.stockData.d("ratio")))
+                row("本金 / 借款", Fmt.money(store.stockData.d("margin")) + " / " + Fmt.money(store.stockData.d("loan")))
+                row("杠杆", "\(store.stockData.i("leverage")) 倍")
+                row("净资产 / 本金", String(format: "%.0f%%", store.stockData.d("ratio") * 100))
             }
         }
     }
@@ -160,7 +161,9 @@ struct StockView: View {
                 }
                 .disabled(busy)
 
-                Text("买入只扣「市值 ÷ 杠杆」的保证金；维持担保比例低于 1.00 会被强制平仓。")
+                Text("买入只扣「市值 ÷ 杠杆」的本金，其余是借款；卖出所得先还借款，剩下才进余额。")
+                Text("净资产（市值 − 借款）低于本金的 20% 会被强制平仓，低于 50% 会提醒补保证金。")
+                Text("追加保证金会先拿去还借款，不会让本金越滚越大。")
                     .font(.system(size: 11)).foregroundColor(DS.text2)
             }
         }
