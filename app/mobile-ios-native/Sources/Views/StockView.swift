@@ -2,6 +2,7 @@ import SwiftUI
 
 /// 股市：上面 K 线，中间持仓与买卖，底部实时行情条
 struct StockView: View {
+    @State private var timer = Timer.publish(every: 4, on: .main, in: .common).autoconnect()
     @EnvironmentObject var store: AppState
 
     @State private var selected = ""
@@ -15,6 +16,9 @@ struct StockView: View {
     private var current: Map {
         stocks.first(where: { $0.s("id") == selected }) ?? stocks.first ?? [:]
     }
+
+    private func autoStart() { store.loadStock() }
+    private func autoStop() { }
 
     var body: some View {
         Group {
@@ -42,7 +46,11 @@ struct StockView: View {
         .navigationBarItems(trailing: Button(action: { store.loadStock() }) {
             Image(systemName: "arrow.clockwise")
         })
-        .onAppear { store.loadStock() }
+        .onAppear { store.loadStock(); autoStart() }
+        .onDisappear { autoStop() }
+        .onReceive(timer) { _ in
+            store.loadStock()
+        }
     }
 
     private func empty(_ text: String) -> some View {

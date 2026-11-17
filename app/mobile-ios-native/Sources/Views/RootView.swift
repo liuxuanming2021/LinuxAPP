@@ -8,6 +8,7 @@ struct RootView: View {
     @EnvironmentObject var store: AppState
     @State private var tab = 0
     @State private var scrollKey = 0
+    @State private var wasLogged = false
     @State private var toastOn = false
     @State private var toastWork: DispatchWorkItem?
 
@@ -129,8 +130,9 @@ struct RootView: View {
                     alignment: .bottom
                 )
                 .onReceive(store.$loggedIn) { on in
-                    // 登录成功 / 冷启动恢复登录后，一律落在「我的」页，并从页面顶部开始
-                    if on {
+                    // 只在「未登录 → 已登录」这一刻重置页签；后续重新发布不能把用户踢回「我的」
+                    defer { wasLogged = on }
+                    if on && !wasLogged {
                         tab = 0
                         store.tabIndex = 0
                         scrollKey += 1
