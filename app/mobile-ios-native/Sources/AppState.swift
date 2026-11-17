@@ -69,6 +69,9 @@ final class AppState: ObservableObject {
     // 提示条：发一条就把 seq +1，视图监听它弹提示
     @Published var toastText = ""
     @Published var toastSeq = 0
+    @Published var marketAlert = ""
+    @Published var marketAlertSeq = 0
+    private var lastAlertId = 0
 
     // 头衔
     @Published var titles: [Map] = []
@@ -446,6 +449,12 @@ final class AppState: ObservableObject {
             let reset = (r["reset"] as? Bool) ?? false
             let last = (r["last"] as? Int) ?? 0
             self.onMain {
+                if let hit = fresh.last(where: { $0.text.contains("股市") && $0.text.contains("突发") }),
+                   hit.id != self.lastAlertId {
+                    self.lastAlertId = hit.id
+                    self.marketAlert = hit.text
+                    self.marketAlertSeq += 1
+                }
                 if reset || self.messages.filter({ $0.id != -1 }).isEmpty {
                     self.messages = fresh
                 } else {

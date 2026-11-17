@@ -199,3 +199,36 @@ struct RootView: View {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 }
+
+// macOS 风格：从右侧滑入的行情横幅，5 秒自动消失，可手动关闭
+struct MarketBanner: View {
+    let text: String
+    @EnvironmentObject var store: AppState
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "chart.line.downtrend.xyaxis")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundColor(.white)
+            Text(text.replacingOccurrences(of: "§", with: ""))
+                .font(.system(size: 13))
+                .foregroundColor(.white)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.2)) { store.marketAlert = "" }
+            }) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 15))
+                    .foregroundColor(.white.opacity(0.75))
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.black.opacity(0.78))
+                .shadow(color: .black.opacity(0.25), radius: 12, x: 0, y: 6)
+        )
+        .frame(maxWidth: 300, alignment: .trailing)
+    }
+}
