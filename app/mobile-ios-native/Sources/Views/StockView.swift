@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// 股市：上面 K 线，中间持仓与买卖，底部实时行情条
 struct StockView: View {
@@ -15,6 +16,11 @@ struct StockView: View {
 
     private var current: Map {
         stocks.first(where: { $0.s("id") == selected }) ?? stocks.first ?? [:]
+    }
+
+    private func haptic(_ ok: Bool) {
+        let g = UINotificationFeedbackGenerator()
+        g.notificationOccurred(ok ? .success : .error)
     }
 
     private func autoStart() { store.loadStock() }
@@ -145,6 +151,7 @@ struct StockView: View {
 
                 HStack(spacing: 10) {
                     Button("调杠杆 (\(store.stockData.i("leverage")) 倍)") { leverage() }
+                    Button("全部平仓") { closeAll() }
                         .frame(maxWidth: .infinity).padding(.vertical, 10)
                         .background(DS.chip).foregroundColor(DS.text).cornerRadius(11)
                     Button("追加保证金 5 万") { margin() }
@@ -194,19 +201,47 @@ struct StockView: View {
         let body: Map = ["action": buying ? "buy" : "sell", "id": id, "shares": shares]
         store.stockAction(body) { err in
             self.busy = false
+            haptic(err == nil)
             if let e = err { store.toast(e) } else { store.toast(buying ? "买入成功" : "卖出成功") }
         }
     }
 
     private func leverage() {
-        let cur = store.stockData.i("leverage")
-        let steps = [1, 2, 5, 10]
-        var next = 1
-        for (i, v) in steps.enumerated() where v == cur { next = steps[(i + 1) % steps.count] }
+        let alert = UIAlertController(title: "设置杠杆", message: "1 ~ 100 倍", preferredStyle: .alert)
+        alert.addTextField { tf in
+            tf.placeholder = "杠杆倍数"
+            tf.keyboardType = .numberPad
+            tf.text = String(store.stockData.i("leverage"))
+        }
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: "确定", style: .default) { _ in
+            let raw = alert.textFields?.first?.text ?? ""
+            let lev = max(1, min(100, Int(raw) ?? 10))
+            busy = true
+            store.stockAction(["action": "leverage", "leverage": lev]) { err in
+                busy = false
+                haptic(err == nil)
+                store.toast(err ?? "杠杆已设为 \(lev) 倍")
+            }
+        })
+        topMost()?.present(alert, animated: true)
+    }
+
+    private func topMost() -> UIViewController? {
+        var vc = UIApplication.shared.keyWindow?.rootViewController
+        while vc?.presentedViewController != nil { vc = vc?.presentedViewController }
+        return vc
+    }
+
+    private func closeAll() {
+        let id = current.s("id") // 只平当前正在看的这只股票
         busy = true
-        store.stockAction(["action": "leverage", "leverage": next]) { err in
-            self.busy = false
-            store.toast(err ?? "杠杆已调到 \(next) 倍")
+        var body: Map = ["action": "closeall"]
+        if !id.isEmpty { body["id"] = id }
+        store.stockAction(body) { err in
+            busy = false
+            haptic(err == nil)
+            store.toast(err ?? "已全部平仓")
         }
     }
 
