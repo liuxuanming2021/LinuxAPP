@@ -9,7 +9,7 @@ struct StockView: View {
     @State private var busy = false
 
     private var stocks: [Map] {
-        (store.stockData.a("stocks") ?? []).compactMap { $0 as? Map }
+        store.stockData.a("stocks")
     }
 
     private var current: Map {
@@ -66,7 +66,7 @@ struct StockView: View {
                 }
                 Text(current.s("regimeText") + " · 每 " + String(store.stockData.i("tickSeconds")) + " 秒报价")
                     .font(.system(size: 12)).foregroundColor(DS.text2)
-                KLine(values: (current.a("history") ?? []).compactMap { $0 as? Double })
+                KLine(values: (current["history"] as? [Double]) ?? [])
                     .frame(height: 130)
             }
         }
@@ -230,7 +230,7 @@ struct KLine: View {
                     p.addLine(to: CGPoint(x: x, y: geo.size.height))
                 }
             }
-            .stroke(DS.accent.opacity(0.25), lineWidth: 1)
+            .stroke(Color.gray.opacity(0.25), lineWidth: 1)
 
             Path { p in
                 guard values.count > 1 else { return }

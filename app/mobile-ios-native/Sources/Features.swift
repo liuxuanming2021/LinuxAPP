@@ -429,23 +429,29 @@ extension AppState {
 
 extension AppState {
     func loadStock() {
-        api.get("/api/stock") { r, err in
-            self.onMain {
-                if let e = err { self.toast(e); return }
-                let d = r.map()
-                self.stockAvailable = d.b("available")
-                self.stockData = d.m("data")
+        Task {
+            do {
+                let d = try await APIClient.shared.get("/api/stock")
+                self.onMain {
+                    self.stockAvailable = d.b("available")
+                    self.stockData = d.m("data")
+                }
+            } catch {
+                self.onMain { self.toast(NetMsg.zh(error)) }
             }
         }
     }
 
     func stockAction(_ body: Map, done: @escaping (String?) -> Void) {
-        api.post("/api/stock", body) { r, err in
-            self.onMain {
-                if let e = err { done(e); return }
-                let m = r.map()
-                self.stockData = m.m("data")
-                done(m.b("ok") ? nil : m.s("message"))
+        Task {
+            do {
+                let m = try await APIClient.shared.post("/api/stock", body)
+                self.onMain {
+                    self.stockData = m.m("data")
+                    done(m.b("ok") ? nil : m.s("message"))
+                }
+            } catch {
+                self.onMain { done(NetMsg.zh(error)) }
             }
         }
     }
