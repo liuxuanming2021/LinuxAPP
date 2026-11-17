@@ -426,3 +426,27 @@ extension AppState {
         }
     }
 }
+
+extension AppState {
+    func loadStock() {
+        api.get("/api/stock") { r, err in
+            self.onMain {
+                if let e = err { self.toast(e); return }
+                let d = r.map()
+                self.stockAvailable = d.b("available")
+                self.stockData = d.m("data")
+            }
+        }
+    }
+
+    func stockAction(_ body: Map, done: @escaping (String?) -> Void) {
+        api.post("/api/stock", body) { r, err in
+            self.onMain {
+                if let e = err { done(e); return }
+                let m = r.map()
+                self.stockData = m.m("data")
+                done(m.b("ok") ? nil : m.s("message"))
+            }
+        }
+    }
+}

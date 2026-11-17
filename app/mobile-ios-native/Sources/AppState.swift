@@ -157,6 +157,8 @@ final class AppState: ObservableObject {
     @Published var fakesAvailable = false
     @Published var spawnAvailable = false
     @Published var spawnInfo: Map = [:]
+    @Published var stockAvailable = false
+    @Published var stockData: Map = [:]
     @Published var staff: [Map] = []
     @Published var tabIndex = 0
     // 多服务器（最多 5 台，可切换）

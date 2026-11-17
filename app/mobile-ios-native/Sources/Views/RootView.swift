@@ -76,6 +76,17 @@ struct RootView: View {
                     }
 
                     NavigationView {
+                        StockView()
+                            .id("top-\(scrollKey)")
+                    }
+                    .navigationViewStyle(StackNavigationViewStyle())
+                    .tabItem {
+                        Image(systemName: "chart.bar.fill")
+                        Text("股市")
+                    }
+                    .tag(5)
+
+                    NavigationView {
                         MoreView()
                             .id("top-\(scrollKey)")
                             .navigationBarTitle(Text("更多"), displayMode: .inline)
