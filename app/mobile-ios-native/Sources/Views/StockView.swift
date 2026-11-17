@@ -96,6 +96,8 @@ struct StockView: View {
                 row("本金 / 借款", Fmt.money(store.stockData.d("margin")) + " / " + Fmt.money(store.stockData.d("loan")))
                 row("杠杆", "\(store.stockData.i("leverage")) 倍")
                 row("净资产 / 本金", String(format: "%.0f%%", store.stockData.d("ratio") * 100))
+                row("爆仓线（净资产下限）", Fmt.money(store.stockData.d("liqFloor")))
+                row("距爆仓", Fmt.money(store.stockData.d("liqDistance")))
             }
         }
     }
@@ -117,6 +119,8 @@ struct StockView: View {
                                 .foregroundColor(s.d("change") >= 0 ? .red : DS.green)
                             if s.i("shares") > 0 {
                                 Text("\(s.i("shares")) 股").font(.system(size: 12)).foregroundColor(DS.text2)
+                                Text("爆仓 " + Fmt.money(s.d("liqPrice"))).font(.system(size: 11))
+                                    .foregroundColor(.red)
                             }
                         }
                         .padding(.vertical, 8)
