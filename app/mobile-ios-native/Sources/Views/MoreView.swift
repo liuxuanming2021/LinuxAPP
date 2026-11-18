@@ -13,7 +13,6 @@ struct MoreView: View {
         ScrollView {
             VStack(spacing: 14) {
                 account
-                rank
                 display
                 theme
                 server
@@ -41,12 +40,6 @@ struct MoreView: View {
         .padding(.horizontal, 16)
         .background(DS.card)
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-    }
-
-    private var rank: some View {
-        VStack(spacing: 0) {
-            RankCard()
-        }
     }
 
     private var display: some View {

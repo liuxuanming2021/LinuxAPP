@@ -87,16 +87,23 @@ struct RootView: View {
                     }
                     .tag(5)
 
+                    RanksView()
+                        .tabItem {
+                            Image(systemName: "list.number")
+                            Text("排行榜")
+                        }
+                        .tag(6)
+
                     NavigationView {
                         MoreView()
                             .id("top-\(scrollKey)")
-                            .navigationBarTitle(Text("更多"), displayMode: .inline)
+                            .navigationBarTitle(Text("设置"), displayMode: .inline)
                             .navigationBarItems(trailing: refreshButton)
                     }
                     .navigationViewStyle(StackNavigationViewStyle())
                     .tabItem {
                         Image(systemName: "ellipsis")
-                        Text("更多")
+                        Text("设置")
                     }
                     .tag(4)
                 }
@@ -164,6 +171,8 @@ struct RootView: View {
             store.loadTitles()
         case 4:
             store.loadHealth()
+        case 6:
+            store.loadRank(store.rankType)
         default:
             break
         }
@@ -193,6 +202,8 @@ struct RootView: View {
         case 3:
             Task { await store.loadOnline() }
             store.loadStaff()
+        case 6:
+            store.loadRank(store.rankType)
         default:
             store.loadMeSoon()
         }

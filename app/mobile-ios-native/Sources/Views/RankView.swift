@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// 排行榜卡片：金币 / 点券 / 股市 / 等级 四榜切换，下面列前 10 名。
-/// 「更多」页直接放一张，股市页用 RankSheet 包成弹窗，两边是同一份数据。
+/// 「排行榜」页签直接放一张，股市页用 RankSheet 包成弹窗，两边是同一份数据。
 struct RankCard: View {
     @EnvironmentObject var store: AppState
     @State private var timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
@@ -88,6 +88,29 @@ struct RankCard: View {
         if i == 1 { return Color(red: 0.72, green: 0.75, blue: 0.80) }
         if i == 2 { return Color(red: 0.80, green: 0.52, blue: 0.26) }
         return DS.muted
+    }
+}
+
+/// 独立页签：排行榜。导航栏用系统样式，页面里直接放 RankCard。
+struct RanksView: View {
+    @EnvironmentObject var store: AppState
+    @State private var timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(spacing: 14) {
+                    RankCard()
+                    Spacer().frame(height: 20)
+                }
+                .padding(16)
+            }
+            .background(DS.bg.edgesIgnoringSafeArea(.all))
+            .navigationBarTitle(Text("排行榜"), displayMode: .inline)
+        }
+        .navigationViewStyle(StackNavigationViewStyle())
+        .onAppear { store.loadRank(store.rankType) }
+        .onReceive(timer) { _ in store.loadRank(store.rankType) }
     }
 }
 

@@ -168,6 +168,7 @@ final class AppState: ObservableObject {
     @Published var rankAvailable = true
     @Published var rankTime: Double = 0
     @Published var staff: [Map] = []
+    // 当前底部页签（0 我的 / 1 社交 / 2 头衔 / 3 管理 / 5 股市 / 6 排行榜 / 4 设置）
     @Published var tabIndex = 0
     // 多服务器（最多 5 台，可切换）
     @Published var multiServer = UserDefaults.standard.bool(forKey: "multiServer")
@@ -175,7 +176,7 @@ final class AppState: ObservableObject {
     @Published var activeServer = 0
     // 提醒开关
     @Published var notifyInApp = UserDefaults.standard.object(forKey: "notifyInApp") as? Bool ?? true
-    @Published var notifyOut = UserDefaults.standard.object(forKey: "notifyOut") as? Bool ?? true            // 当前底部页签（0 我的 / 1 社交 / 2 头衔 / 3 管理 / 4 更多）
+    @Published var notifyOut = UserDefaults.standard.object(forKey: "notifyOut") as? Bool ?? true
     @Published var adminTab = 0            // 当前管理页签（0 在线 / 1 玩家 / 2 举报 / 3 惩罚 / 4 假人 / 5 控制台）
     @Published var suOutput = ""
     // Linux 系插件（只有 Linux582021 能看到）
