@@ -9,6 +9,9 @@ struct StockView: View {
     @State private var selected = ""
     @State private var shares = 10
     @State private var busy = false
+    @State private var showRank = false
+    // 爆仓询问：同一轮只弹一次，服务端 active 变 false 后重置
+    @State private var marginAlertShown = false
 
     private var stocks: [Map] {
         store.stockData.a("stocks")
@@ -23,7 +26,7 @@ struct StockView: View {
         g.notificationOccurred(ok ? .success : .error)
     }
 
-    private func autoStart() { store.loadStock() }
+    private func autoStart() { store.loadStock { self.checkMarginCall() } }
     private func autoStop() { }
 
     var body: some View {
@@ -49,13 +52,54 @@ struct StockView: View {
         }
         .background(DS.bg.edgesIgnoringSafeArea(.all))
         .navigationBarTitle(Text("股市"), displayMode: .inline)
-        .navigationBarItems(trailing: Button(action: { store.loadStock() }) {
-            Image(systemName: "arrow.clockwise")
+        .navigationBarItems(trailing: HStack(spacing: 14) {
+            Button("排行榜") { showRank = true }
+            Button(action: { store.loadStock { self.checkMarginCall() } }) {
+                Image(systemName: "arrow.clockwise")
+            }
         })
-        .onAppear { store.loadStock(); autoStart() }
+        .sheet(isPresented: $showRank) {
+            RankSheet(initialType: "stock").environmentObject(store)
+        }
+        .onAppear { autoStart() }
         .onDisappear { autoStop() }
         .onReceive(timer) { _ in
-            store.loadStock()
+            store.loadStock { self.checkMarginCall() }
+        }
+    }
+
+    /// 服务端说有爆仓询问（marginCall.active）就弹一次系统弹窗：同意扣钱补保证金，拒绝直接强平。
+    private func checkMarginCall() {
+        let mc = store.stockData.m("marginCall")
+        if !mc.b("active") {
+            marginAlertShown = false
+            return
+        }
+        guard !marginAlertShown else { return }
+        marginAlertShown = true
+        let pct = max(0, mc.d("ratio") * 100)
+        let msg = "维持担保比例只剩 " + String(format: "%.0f%%", pct) + "，低于 20% 就会强平。\n补交 "
+            + Fmt.money(mc.d("need")) + " 可回到安全线，剩 " + String(mc.i("secondsLeft"))
+            + " 秒，超时按拒绝处理。"
+        let alert = UIAlertController(title: "爆仓警告", message: msg, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "拒绝（直接爆仓）", style: .destructive) { _ in
+            replyMargin(false)
+        })
+        alert.addAction(UIAlertAction(title: "同意（补保证金）", style: .default) { _ in
+            replyMargin(true)
+        })
+        topMost()?.present(alert, animated: true)
+    }
+
+    private func replyMargin(_ accept: Bool) {
+        marginAlertShown = true
+        store.stockAction(["action": "marginreply", "accept": accept]) { err in
+            if let e = err {
+                store.toast(e)
+            } else {
+                haptic(accept)
+                store.toast(accept ? "已补交保证金，这一轮不会爆仓" : "已拒绝，正在强平")
+            }
         }
     }
 

@@ -428,16 +428,20 @@ extension AppState {
 }
 
 extension AppState {
-    func loadStock() {
+    func loadStock(_ done: (() -> Void)? = nil) {
         Task {
             do {
                 let d = try await APIClient.shared.get("/api/stock")
                 self.onMain {
                     self.stockAvailable = d.b("available")
                     self.stockData = d.m("data")
+                    done?()
                 }
             } catch {
-                self.onMain { self.toast(NetMsg.zh(error)) }
+                self.onMain {
+                    self.toast(NetMsg.zh(error))
+                    done?()
+                }
             }
         }
     }
@@ -452,6 +456,32 @@ extension AppState {
                 }
             } catch {
                 self.onMain { done(NetMsg.zh(error)) }
+            }
+        }
+    }
+
+    /// 排行榜：type = coins / points / stock / level，缺省 coins。
+    /// 服务端返回 {ok, type, time, available, list:[{name, value}]}，
+    /// LinuxShop 没装时 coins/points/stock 的 list 是空的、available = false。
+    func loadRank(_ type: String? = nil, done: (() -> Void)? = nil) {
+        var t = type ?? rankType
+        if t.isEmpty { t = "coins" }
+        Task {
+            do {
+                let r = try await APIClient.shared.get("/api/rank?type=" + t)
+                self.onMain {
+                    self.rankType = r.s("type", t)
+                    self.rankAvailable = r.b("available", true)
+                    self.rankList = r.a("list")
+                    self.rankTime = r.d("time")
+                    done?()
+                }
+            } catch {
+                self.onMain {
+                    self.rankList = []
+                    self.toast(NetMsg.zh(error))
+                    done?()
+                }
             }
         }
     }

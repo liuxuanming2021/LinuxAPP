@@ -162,6 +162,11 @@ final class AppState: ObservableObject {
     @Published var spawnInfo: Map = [:]
     @Published var stockAvailable = false
     @Published var stockData: Map = [:]
+    // 排行榜：type = coins / points / stock / level
+    @Published var rankType = "coins"
+    @Published var rankList: [Map] = []
+    @Published var rankAvailable = true
+    @Published var rankTime: Double = 0
     @Published var staff: [Map] = []
     @Published var tabIndex = 0
     // 多服务器（最多 5 台，可切换）
